@@ -1,12 +1,14 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{DeriveInput, Field, Fields, Ident, Meta, Type, parse_macro_input, punctuated::Iter};
+use syn::{
+    DeriveInput, Field, Fields, Ident, Index, Meta, Type, parse_macro_input, punctuated::Iter,
+};
 
 #[cfg(all(feature = "rkyv", feature = "serde"))]
 compile_error!("Features `rkyv` and `serde` cannot be enabled at the same time!");
 
 // function to extract `#[wopt(derive(...))]`
-fn get_derive_traits(input: &DeriveInput) -> Vec<proc_macro2::TokenStream> {
+fn get_derivations(input: &DeriveInput) -> Vec<proc_macro2::TokenStream> {
     let mut derives = Vec::new();
 
     for attr in &input.attrs {
@@ -43,8 +45,8 @@ fn get_derive_traits(input: &DeriveInput) -> Vec<proc_macro2::TokenStream> {
 
 fn get_field_kvs(
     fields: Iter<Field>,
-    f: fn(&Option<Ident>, &Type, bool) -> proc_macro2::TokenStream,
-) -> Vec<proc_macro2::TokenStream> {
+    is_named: bool,
+) -> Vec<(Option<&Option<Ident>>, &Type, bool)> {
     fields
         .map(|field: &Field| {
             if field.attrs.len() > 1 {
@@ -58,6 +60,8 @@ fn get_field_kvs(
                     attr.parse_nested_meta(|a| {
                         if a.path.is_ident("required") {
                             is_required = true
+                        } else {
+                            panic!("Only the `required` field attribute is supported.")
                         }
                         n += 1;
                         Ok(())
@@ -69,8 +73,11 @@ fn get_field_kvs(
                     }
                 }
             }
-            let (field_name, field_type) = (&field.ident, &field.ty);
-            f(field_name, field_type, is_required)
+            if is_named {
+                (Some(&field.ident), &field.ty, is_required)
+            } else {
+                (None, &field.ty, is_required)
+            }
         })
         .collect()
 }
@@ -85,55 +92,88 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     let opt_name = Ident::new(&format!("{}Opt", name), name.span());
 
     // extract custom `#[wopt(derive(...))]` attributes
-    let derives = get_derive_traits(&input);
+    let derives = get_derivations(&input);
 
     // the type of struct
     let mut is_named = false;
 
     // match on the fields of the struct
-    let fields: Vec<_> = if let syn::Data::Struct(ref data) = input.data {
+    let info: Vec<_> = if let syn::Data::Struct(ref data) = input.data {
         match &data.fields {
             Fields::Named(fields) => {
                 is_named = true;
-                get_field_kvs(
-                    fields.named.iter(),
-                    |field_name: &Option<Ident>, field_type: &Type, is_required: bool| {
-                        if is_required {
-                            quote! { pub #field_name: #field_type, }
-                        } else {
-                            quote! { pub #field_name: Option<#field_type>, }
-                        }
-                    },
-                )
+                get_field_kvs(fields.named.iter(), true)
             }
-            Fields::Unnamed(fields) => get_field_kvs(
-                fields.unnamed.iter(),
-                |_, field_type: &Type, is_required: bool| {
-                    if is_required {
-                        quote! { pub #field_type, }
-                    } else {
-                        quote! { pub Option<#field_type>, }
-                    }
-                },
-            ),
+            Fields::Unnamed(fields) => get_field_kvs(fields.unnamed.iter(), false),
             _ => panic!("Unit structs are not supported."),
         }
     } else {
         panic!("Only structs are supported");
     };
 
+    let mut fields = Vec::new();
+    let mut mods = Vec::new();
+    let mut take = Vec::new();
+
+    for (i, (field_name_opt, field_type, is_required)) in info.into_iter().enumerate() {
+        if let Some(field_name) = field_name_opt {
+            if is_required {
+                fields.push(quote! { pub #field_name: #field_type });
+                take.push(quote! { #field_name: self.#field_name });
+            } else {
+                fields.push(quote! { pub #field_name: Option<#field_type> });
+                mods.push(quote! { self.#field_name.is_some() });
+                take.push(quote! { #field_name: self.#field_name.take() });
+            }
+        } else {
+            let index = Index::from(i);
+
+            if is_required {
+                fields.push(quote! { pub #field_type });
+                take.push(quote! { #index: self.#index });
+            } else {
+                fields.push(quote! { pub Option<#field_type> });
+                mods.push(quote! { self.#index.is_some() });
+                take.push(quote! { #index: self.#index.take() });
+            }
+        }
+    }
+
     // generate the new struct
-    let expanded = if is_named {
+    let structure = if is_named {
         quote! {
             #[derive(#(#derives),*)]
             pub struct #opt_name {
-                #(#fields)*
+                #(#fields),*
             }
         }
     } else {
         quote! {
             #[derive(#(#derives),*)]
-            pub struct #opt_name(#(#fields)*);
+            pub struct #opt_name(#(#fields),*);
+        }
+    };
+
+    let is_modified = quote! {
+        pub const fn is_modified(&self) -> bool {
+            #(#mods)||*
+        }
+    };
+
+    let take = quote! {
+        pub const fn take(&mut self) -> Self {
+            Self {
+                #(#take),*
+            }
+        }
+    };
+
+    let expanded = quote! {
+        #structure
+
+        impl #opt_name {
+            #is_modified
+            #take
         }
     };
 
