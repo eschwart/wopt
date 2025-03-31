@@ -255,7 +255,7 @@ checksum = "458f7a779bf54acc9f347480ac654f68407d3aab21269a6e3c9f922acd9e2da9"
 
 [[package]]
 name = "wopt"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "quote",
  "rkyv",
