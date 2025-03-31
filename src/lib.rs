@@ -74,7 +74,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     // Generate the new struct
     let expanded = quote! {
         #[derive(#derives)]
-        struct #opt_name {
+        pub struct #opt_name {
             #(#fields)*
         }
     };
