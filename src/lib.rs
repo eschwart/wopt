@@ -6,8 +6,8 @@ use syn::{DeriveInput, Field, Fields, Ident, Meta, Type, parse_macro_input, punc
 compile_error!("Features `rkyv` and `serde` cannot be enabled at the same time!");
 
 // function to extract `#[wopt(derive(...))]`
-fn extract_derive_traits(input: &DeriveInput) -> Vec<Ident> {
-    let mut traits = Vec::new();
+fn get_derive_traits(input: &DeriveInput) -> Vec<proc_macro2::TokenStream> {
+    let mut derives = Vec::new();
 
     for attr in &input.attrs {
         if attr.path().is_ident("wopt") {
@@ -17,14 +17,28 @@ fn extract_derive_traits(input: &DeriveInput) -> Vec<Ident> {
             meta_list
                 .parse_nested_meta(|a| {
                     if let Some(ident) = a.path.get_ident() {
-                        traits.push(ident.clone());
+                        derives.push(quote! { #ident });
                     }
                     Ok(())
                 })
                 .unwrap();
         }
     }
-    traits
+
+    #[cfg(feature = "rkyv")]
+    derives.extend([
+        quote! { ::rkyv::Archive },
+        quote! { ::rkyv::Serialize },
+        quote! { ::rkyv::Deserialize },
+    ]);
+
+    #[cfg(feature = "serde")]
+    derives.extend([
+        quote! { ::serde::Serialize },
+        quote! { ::serde::Deserialize },
+    ]);
+
+    derives
 }
 
 fn get_field_kvs(
@@ -71,7 +85,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     let opt_name = Ident::new(&format!("{}Opt", name), name.span());
 
     // extract custom `#[wopt(derive(...))]` attributes
-    let derived_traits = extract_derive_traits(&input);
+    let derives = get_derive_traits(&input);
 
     // the type of struct
     let mut is_named = false;
@@ -94,7 +108,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
             }
             Fields::Unnamed(fields) => get_field_kvs(
                 fields.unnamed.iter(),
-                |_: &Option<Ident>, field_type: &Type, is_required: bool| {
+                |_, field_type: &Type, is_required: bool| {
                     if is_required {
                         quote! { pub #field_type, }
                     } else {
@@ -108,29 +122,17 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
         panic!("Only structs are supported");
     };
 
-    let derives = if derived_traits.is_empty() {
-        quote! {}
-    } else {
-        quote! { #(#derived_traits),* }
-    };
-
-    #[cfg(feature = "rkyv")]
-    let derives = quote! { #derives, ::rkyv::Archive, ::rkyv::Deserialize, ::rkyv::Serialize };
-
-    #[cfg(feature = "serde")]
-    let derives = quote! { #derives, ::serde::Deserialize, ::serde::Serialize };
-
     // generate the new struct
     let expanded = if is_named {
         quote! {
-            #[derive(#derives)]
+            #[derive(#(#derives),*)]
             pub struct #opt_name {
                 #(#fields)*
             }
         }
     } else {
         quote! {
-            #[derive(#derives)]
+            #[derive(#(#derives),*)]
             pub struct #opt_name(#(#fields)*);
         }
     };
