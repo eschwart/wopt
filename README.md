@@ -32,17 +32,18 @@ fn main() {
 }
 ```
 
-## Field Attribute(s)
+## Field Attributes
 | Name | Description |
 | ---- | ----------- |
-| `required` | Does not wrap the specified field with an `Option` |
+| `required` | Does not wrap the specified field with an `Option`. |
+| `skip` | Does not include the specified field. |
 
 
 ## Optional Features
 | Name | Description |
 | ---- | ----------- |
-| [rkyv](https://crates.io/crates/bitflags) | Serialize/Deserialize using `rkyv` |
-| [serde](https://crates.io/crates/serde) | Seriailze/Deserialize using `serde` |
+| [rkyv](https://crates.io/crates/bitflags) | Serialize/Deserialize using `rkyv`. |
+| [serde](https://crates.io/crates/serde)   | Seriailze/Deserialize using `serde`. |
 
 
 ## Additional Notes

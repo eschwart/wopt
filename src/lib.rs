@@ -48,20 +48,24 @@ fn get_field_kvs(
     is_named: bool,
 ) -> Vec<(Option<&Option<Ident>>, &Type, bool)> {
     fields
-        .map(|field: &Field| {
+        .filter_map(|field: &Field| {
             if field.attrs.len() > 1 {
                 panic!("Only 1 attribute per field is supported.")
             }
-            let mut is_required = false;
+            let (mut is_required, mut skip) = Default::default();
 
             if let Some(attr) = field.attrs.first() {
                 if attr.path().is_ident("wopt") {
                     let mut n = 0;
                     attr.parse_nested_meta(|a| {
-                        if a.path.is_ident("required") {
-                            is_required = true
-                        } else {
-                            panic!("Only the `required` field attribute is supported.")
+                        if let Some(ident) = a.path.get_ident() {
+                            match ident.to_string().as_str() {
+                                "required" => is_required = true,
+                                "skip" => skip = true,
+                                _ => panic!(
+                                    "Only `required` & `skip` field attributes are supported."
+                                ),
+                            }
                         }
                         n += 1;
                         Ok(())
@@ -73,10 +77,15 @@ fn get_field_kvs(
                     }
                 }
             }
+
+            if skip {
+                return None;
+            }
+
             if is_named {
-                (Some(&field.ident), &field.ty, is_required)
+                Some((Some(&field.ident), &field.ty, is_required))
             } else {
-                (None, &field.ty, is_required)
+                Some((None, &field.ty, is_required))
             }
         })
         .collect()

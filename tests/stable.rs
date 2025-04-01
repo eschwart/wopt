@@ -8,6 +8,7 @@ struct ExampleNamed {
     a: u8,
     #[wopt(required)]
     b: f32,
+    #[wopt(skip)]
     c: String,
 }
 
@@ -21,12 +22,10 @@ fn test_named() {
     assert!(!ex_opt.is_modified());
 
     let b = 420.0;
-    let c = Some("very cool kanye".to_string());
     ex_opt.b = b;
-    ex_opt.c = c.clone();
     assert!(ex_opt.is_modified());
 
-    assert_eq!(ex_opt, ExampleNamedOpt { a: None, b, c });
+    assert_eq!(ex_opt, ExampleNamedOpt { a: None, b });
 
     _ = ex_opt.take();
     assert!(!ex_opt.is_modified())
