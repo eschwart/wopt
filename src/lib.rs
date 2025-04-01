@@ -121,6 +121,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     };
 
     let mut fields = Vec::new();
+    let mut upts = Vec::new();
     let mut mods = Vec::new();
     let mut take = Vec::new();
 
@@ -131,17 +132,24 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 take.push(quote! { #field_name: self.#field_name });
             } else {
                 fields.push(quote! { pub #field_name: Option<#field_type> });
+                upts.push(quote! { if let Some(#field_name) = rhs.#field_name {
+                    self.#field_name = #field_name
+                } });
                 mods.push(quote! { self.#field_name.is_some() });
                 take.push(quote! { #field_name: self.#field_name.take() });
             }
         } else {
             let index = Index::from(i);
+            let var = Ident::new(&format!("_{}", i), proc_macro2::Span::call_site());
 
             if is_required {
                 fields.push(quote! { pub #field_type });
                 take.push(quote! { #index: self.#index });
             } else {
                 fields.push(quote! { pub Option<#field_type> });
+                upts.push(quote! { if let Some(#var) = rhs.#index {
+                    self.#index = #var
+                } });
                 mods.push(quote! { self.#index.is_some() });
                 take.push(quote! { #index: self.#index.take() });
             }
@@ -163,6 +171,18 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
         }
     };
 
+    let doc_comment = format!(
+        "Apply all modifications from [`{}`] to [`{}`].",
+        opt_name, name
+    );
+    let patch = quote! {
+        #[doc = #doc_comment]
+        pub fn patch(&mut self, rhs: &mut #opt_name) {
+            let rhs = rhs.take();
+            #(#upts)*
+        }
+    };
+
     let is_modified = quote! {
         pub const fn is_modified(&self) -> bool {
             #(#mods)||*
@@ -179,6 +199,10 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
 
     let expanded = quote! {
         #structure
+
+        impl #name {
+            #patch
+        }
 
         impl #opt_name {
             #is_modified
