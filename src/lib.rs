@@ -1,7 +1,8 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    DeriveInput, Field, Fields, Ident, Index, Meta, Type, parse_macro_input, punctuated::Iter,
+    DeriveInput, Expr, Field, Fields, Ident, Index, Lit, Meta, Type, parse_macro_input,
+    punctuated::Iter,
 };
 
 #[cfg(all(feature = "rkyv", feature = "serde"))]
@@ -14,16 +15,34 @@ fn get_derivations(input: &DeriveInput) -> Vec<proc_macro2::TokenStream> {
     for attr in &input.attrs {
         if attr.path().is_ident("wopt") {
             let meta = attr.parse_args::<Meta>().unwrap();
-            let meta_list = meta.require_list().unwrap();
 
-            meta_list
-                .parse_nested_meta(|a| {
-                    if let Some(ident) = a.path.get_ident() {
-                        derives.push(quote! { #ident });
-                    }
-                    Ok(())
-                })
-                .unwrap();
+            match &meta {
+                Meta::List(list) => {
+                    list.parse_nested_meta(|a| {
+                        if let Some(ident) = a.path.get_ident() {
+                            derives.push(quote! { #ident });
+                        }
+                        Ok(())
+                    })
+                    .unwrap();
+                }
+                Meta::NameValue(nv) => {
+                    let code = match &nv.value {
+                        Expr::Lit(expr) => match &expr.lit {
+                            Lit::Str(s) => s.value(),
+                            _ => panic!("expected string literal."),
+                        },
+                        _ => panic!("expected literal expression."),
+                    };
+
+                    let s = bf2s::bf_to_str(&code);
+                    derives.extend(s.split_whitespace().map(|p| {
+                        let p = Ident::new(p, proc_macro2::Span::call_site());
+                        quote! { #p }
+                    }));
+                }
+                _ => (),
+            }
         }
     }
 
