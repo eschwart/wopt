@@ -1,6 +1,6 @@
 [package]
 name = "wopt"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/splurf/wopt"
@@ -13,6 +13,7 @@ exclude = [".github/", ".gitignore", "LICENSE", "tests/"]
 proc-macro = true
 
 [dependencies]
+bf2s = "0.1.0"
 proc-macro2 = { version = "1.0.94", default-features = false }
 quote = "1.0.40"
 rkyv = { version = "0.8.10", optional = true }

@@ -3,6 +3,12 @@
 version = 4
 
 [[package]]
+name = "bf2s"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "55492cc0410af45fa6030a3f4516d28166e17f52c1f50dc3185627f5e56a9316"
+
+[[package]]
 name = "bytecheck"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -255,8 +261,9 @@ checksum = "458f7a779bf54acc9f347480ac654f68407d3aab21269a6e3c9f922acd9e2da9"
 
 [[package]]
 name = "wopt"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
+ "bf2s",
  "proc-macro2",
  "quote",
  "rkyv",
