@@ -28,7 +28,34 @@ fn test_stable() {
 
 #[test]
 #[cfg(feature = "rkyv")]
-fn test_rkyv() {
+fn test_rkyv_serialize() {
+    let mut ex_opt = ExampleNamedOpt::default();
+    ex_opt.a = Some(A);
+    ex_opt.c = Some(C);
+
+    let serialized = ex_opt.serialize();
+    assert_eq!(serialized, [5, 69, 0, 248, 255, 255]);
+}
+
+#[test]
+#[cfg(feature = "rkyv")]
+fn test_rkyv_deserialize() {
+    let bytes = [5, 69, 0, 248, 255, 255];
+
+    let deserialized = ExampleNamedOpt::deserialize(&bytes);
+    assert_eq!(
+        deserialized,
+        ExampleNamedOpt {
+            a: Some(A),
+            b: None,
+            c: Some(C)
+        }
+    );
+}
+
+#[test]
+#[cfg(feature = "rkyv-full")]
+fn test_rkyv_full() {
     let mut ex_opt = ExampleNamedOpt::default();
     ex_opt.a = Some(A);
 
