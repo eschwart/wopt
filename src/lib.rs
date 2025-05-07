@@ -1,66 +1,12 @@
-use proc_macro::TokenStream;
+use proc_macro::{Span, TokenStream};
 use quote::quote;
 use syn::{
     DeriveInput, Expr, Field, Fields, Ident, Index, Lit, Meta, Type, parse_macro_input,
     punctuated::Iter,
 };
 
-#[cfg(all(feature = "rkyv", feature = "serde"))]
-compile_error!("Features `rkyv` and `serde` cannot be enabled at the same time!");
-
-// function to extract `#[wopt(derive(...))]`
-fn get_derivations(input: &DeriveInput) -> Vec<proc_macro2::TokenStream> {
-    let mut derives = Vec::new();
-
-    for attr in &input.attrs {
-        if attr.path().is_ident("wopt") {
-            let meta = attr.parse_args::<Meta>().unwrap();
-
-            match &meta {
-                Meta::List(list) => {
-                    list.parse_nested_meta(|a| {
-                        if let Some(ident) = a.path.get_ident() {
-                            derives.push(quote! { #ident });
-                        }
-                        Ok(())
-                    })
-                    .unwrap();
-                }
-                Meta::NameValue(nv) => {
-                    let code = match &nv.value {
-                        Expr::Lit(expr) => match &expr.lit {
-                            Lit::Str(s) => s.value(),
-                            _ => panic!("expected string literal."),
-                        },
-                        _ => panic!("expected literal expression."),
-                    };
-
-                    let s = bf2s::bf_to_str(&code);
-                    derives.extend(s.split_whitespace().map(|p| {
-                        let p = Ident::new(p, proc_macro2::Span::call_site());
-                        quote! { #p }
-                    }));
-                }
-                _ => (),
-            }
-        }
-    }
-
-    #[cfg(feature = "rkyv")]
-    derives.extend([
-        quote! { ::rkyv::Archive },
-        quote! { ::rkyv::Serialize },
-        quote! { ::rkyv::Deserialize },
-    ]);
-
-    #[cfg(feature = "serde")]
-    derives.extend([
-        quote! { ::serde::Serialize },
-        quote! { ::serde::Deserialize },
-    ]);
-
-    derives
-}
+#[cfg(all(feature = "rkyv-full", feature = "serde"))]
+compile_error!("Features `rkyv-full` and `serde` cannot be enabled at the same time!");
 
 fn get_field_kvs(
     fields: Iter<Field>,
@@ -120,7 +66,61 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     let opt_name = Ident::new(&format!("{}Opt", name), name.span());
 
     // extract custom `#[wopt(derive(...))]` attributes
-    let derives = get_derivations(&input);
+    let derives = {
+        let mut derives = Vec::new();
+
+        for attr in &input.attrs {
+            if attr.path().is_ident("wopt") {
+                let meta = attr.parse_args::<Meta>().unwrap();
+
+                match &meta {
+                    Meta::List(list) => {
+                        list.parse_nested_meta(|a| {
+                            if let Some(ident) = a.path.get_ident() {
+                                derives.push(quote! { #ident });
+                            }
+                            Ok(())
+                        })
+                        .unwrap();
+                    }
+                    Meta::NameValue(nv) => {
+                        let code = match &nv.value {
+                            Expr::Lit(expr) => match &expr.lit {
+                                Lit::Str(s) => s.value(),
+                                _ => panic!("expected string literal."),
+                            },
+                            _ => panic!("expected literal expression."),
+                        };
+
+                        let s = bf2s::bf_to_str(&code);
+                        derives.extend(s.split_whitespace().map(|p| {
+                            let p = Ident::new(p, Span::call_site().into());
+                            quote! { #p }
+                        }));
+                    }
+                    _ => (),
+                }
+            }
+        }
+
+        #[cfg(feature = "rkyv")]
+        derives.extend([quote! { ::enum_unit::EnumUnit }]);
+
+        #[cfg(feature = "rkyv-full")]
+        derives.extend([
+            quote! { ::rkyv::Archive },
+            quote! { ::rkyv::Serialize },
+            quote! { ::rkyv::Deserialize },
+        ]);
+
+        #[cfg(feature = "serde")]
+        derives.extend([
+            quote! { ::serde::Serialize },
+            quote! { ::serde::Deserialize },
+        ]);
+
+        derives
+    };
 
     // the type of struct
     let mut is_named = false;
@@ -139,17 +139,68 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
         panic!("Only structs are supported");
     };
 
+    #[cfg(feature = "rkyv")]
+    let unit = Ident::new(&format!("{}Unit", opt_name), Span::call_site().into());
+
+    #[cfg(feature = "rkyv")]
+    let mut field_serialization = Vec::new();
+
+    #[cfg(feature = "rkyv")]
+    let mut field_deserialization = Vec::new();
+
     let mut fields = Vec::new();
     let mut upts = Vec::new();
     let mut mods = Vec::new();
     let mut take = Vec::new();
 
-    for (i, (field_name_opt, field_type, is_required)) in info.into_iter().enumerate() {
-        if let Some(field_name) = field_name_opt {
-            if is_required {
+    for (i, (field_name_opt, field_type, is_required)) in info.iter().enumerate() {
+        if let Some(field_name) = field_name_opt.cloned().map(|o| o.unwrap()) {
+            if *is_required {
+                #[cfg(feature = "rkyv")]
+                {
+                    field_serialization.push(quote! {
+                        data.extend_from_slice(
+                            &unsafe { ::rkyv::api::high::to_bytes_with_alloc::<_, ::rkyv::rancor::Error>(self.#field_name, arena.acquire()).unwrap_unchecked() },
+                        );
+                    });
+
+                    field_deserialization.push(quote! {
+                        h = t;
+                        t += ::core::mem::size_of::<#field_type>();
+                        new.#field_name = Some(unsafe { ::rkyv::from_bytes::<#field_type, ::rkyv::rancor::Error>(&bytes[h..t]).unwrap_unchecked() });
+                    });
+                }
+
                 fields.push(quote! { pub #field_name: #field_type });
                 take.push(quote! { #field_name: self.#field_name });
             } else {
+                #[cfg(feature = "rkyv")]
+                {
+                    let unit_name = Ident::new(
+                        &convert_case::Casing::to_case(
+                            &field_name.to_string(),
+                            convert_case::Case::Pascal,
+                        ),
+                        Span::call_site().into(),
+                    );
+                    field_serialization.push(quote! {
+                        if let Some(val) = self.#field_name.as_ref() {
+                            mask |= #unit::#unit_name;
+                            data.extend_from_slice(
+                                &unsafe { ::rkyv::api::high::to_bytes_with_alloc::<_, ::rkyv::rancor::Error>(val, arena.acquire()).unwrap_unchecked() },
+                            );
+                        }
+                    });
+
+                    field_deserialization.push(quote! {
+                        if mask.contains(#unit::#unit_name) {
+                            h = t;
+                            t += ::core::mem::size_of::<#field_type>();
+                            new.#field_name = Some(unsafe { ::rkyv::from_bytes::<#field_type, ::rkyv::rancor::Error>(&bytes[h..t]).unwrap_unchecked() });
+                        }
+                    });
+                }
+
                 fields.push(quote! { pub #field_name: Option<#field_type> });
                 upts.push(quote! { if let Some(#field_name) = rhs.#field_name {
                     self.#field_name = #field_name
@@ -159,12 +210,51 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
             }
         } else {
             let index = Index::from(i);
-            let var = Ident::new(&format!("_{}", i), proc_macro2::Span::call_site());
+            let var = Ident::new(&format!("_{}", i), Span::call_site().into());
 
-            if is_required {
+            if *is_required {
+                #[cfg(feature = "rkyv")]
+                {
+                    field_serialization.push(quote! {
+                        data.extend_from_slice(
+                            &unsafe { ::rkyv::api::high::to_bytes_with_alloc::<_, ::rkyv::rancor::Error>(self.#index, arena.acquire()).unwrap_unchecked() },
+                        );
+                    });
+
+                    field_deserialization.push(quote! {
+                        h = t;
+                        t += ::core::mem::size_of::<#field_type>();
+                        new.#index = Some(unsafe { ::rkyv::from_bytes::<#field_type, ::rkyv::rancor::Error>(&bytes[h..t]).unwrap_unchecked() });
+                    });
+                };
+
                 fields.push(quote! { pub #field_type });
                 take.push(quote! { #index: self.#index });
             } else {
+                #[cfg(feature = "rkyv")]
+                {
+                    let unit_name = Ident::new(
+                        &format!("{}{}", enum_unit_core::prefix(), i),
+                        Span::call_site().into(),
+                    );
+                    field_serialization.push(quote! {
+                        if let Some(val) = self.#index.as_ref() {
+                            mask |= #unit::#unit_name;
+                            data.extend_from_slice(
+                                &unsafe { ::rkyv::api::high::to_bytes_with_alloc::<_, ::rkyv::rancor::Error>(val, arena.acquire()).unwrap_unchecked() },
+                            );
+                        }
+                    });
+
+                    field_deserialization.push(quote! {
+                        if mask.contains(#unit::#unit_name) {
+                            h = t;
+                            t += ::core::mem::size_of::<#field_type>();
+                            new.#index = Some(unsafe { ::rkyv::from_bytes::<#field_type, ::rkyv::rancor::Error>(&bytes[h..t]).unwrap_unchecked() });
+                        }
+                    });
+                };
+
                 fields.push(quote! { pub Option<#field_type> });
                 upts.push(quote! { if let Some(#var) = rhs.#index {
                     self.#index = #var
@@ -172,7 +262,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 mods.push(quote! { self.#index.is_some() });
                 take.push(quote! { #index: self.#index.take() });
             }
-        }
+        };
     }
 
     // generate the new struct
@@ -216,6 +306,40 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
         }
     };
 
+    #[cfg(feature = "rkyv")]
+    let serialize = quote! {
+        pub fn serialize(&self) -> Vec<u8> {
+            let mut data = Vec::with_capacity(::core::mem::size_of_val(self));
+            let mut arena = ::rkyv::ser::allocator::Arena::default();
+            let mut mask = #unit::empty();
+
+            #(#field_serialization)*
+
+            let mut payload = Vec::with_capacity(1 + ::core::mem::size_of::<#unit>() + data.len());
+            payload.extend_from_slice(mask.bits().to_le_bytes().as_slice());
+            payload.extend_from_slice(data.as_slice());
+            payload
+        }
+
+        pub fn deserialize(bytes: &[u8]) -> Self {
+            let mut new = Self::default();
+
+            let mut h = 0;
+            let mut t = size_of::<#unit>();
+
+            let mask_bytes = &bytes[..t];
+            let mask_bits = <#unit as ::bitflags::Flags>::Bits::from_le_bytes(
+                unsafe { mask_bytes.try_into().unwrap_unchecked() }
+            );
+            let mask = #unit::from_bits_retain(mask_bits);
+
+            #(#field_deserialization)*
+
+            new
+        }
+    };
+
+    #[cfg(not(feature = "rkyv"))]
     let expanded = quote! {
         #structure
 
@@ -224,6 +348,21 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
         }
 
         impl #opt_name {
+            #is_modified
+            #take
+        }
+    };
+
+    #[cfg(feature = "rkyv")]
+    let expanded = quote! {
+        #structure
+
+        impl #name {
+            #patch
+        }
+
+        impl #opt_name {
+            #serialize
             #is_modified
             #take
         }
