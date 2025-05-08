@@ -289,7 +289,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     #[cfg(feature = "rkyv")]
     let serde = if is_unit {
         quote! {
-            pub fn serialize() -> [u8; 1] {
+            pub const fn serialize() -> [u8; 1] {
                 [#id]
             }
         }

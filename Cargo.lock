@@ -274,7 +274,7 @@ checksum = "458f7a779bf54acc9f347480ac654f68407d3aab21269a6e3c9f922acd9e2da9"
 
 [[package]]
 name = "wopt"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "bf2s",
  "bitflags",
