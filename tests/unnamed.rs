@@ -34,15 +34,15 @@ fn test_rkyv_serialize() {
     ex_opt.2 = Some(C);
 
     let serialized = ex_opt.serialize();
-    assert_eq!(serialized, [5, 69, 0, 248, 255, 255]);
+    assert_eq!(serialized, [1, 5, 69, 0, 248, 255, 255]);
 }
 
 #[test]
 #[cfg(feature = "rkyv")]
 fn test_rkyv_deserialize() {
-    let bytes = [5, 69, 0, 248, 255, 255];
+    let bytes = [1, 5, 69, 0, 248, 255, 255];
 
-    let deserialized = ExampleUnnamedOpt::deserialize(&bytes);
+    let deserialized = ExampleUnnamedOpt::deserialize(&bytes[1..]);
     assert_eq!(
         deserialized,
         ExampleUnnamedOpt {

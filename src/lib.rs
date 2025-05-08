@@ -56,7 +56,7 @@ fn get_field_kvs(
         .collect()
 }
 
-#[proc_macro_derive(WithOpt, attributes(wopt))]
+#[proc_macro_derive(WithOpt, attributes(id, wopt))]
 pub fn wopt_derive(input: TokenStream) -> TokenStream {
     // parse the input tokens into a syntax tree
     let input = parse_macro_input!(input as DeriveInput);
@@ -65,7 +65,11 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     let name = &input.ident;
     let opt_name = Ident::new(&format!("{}Opt", name), name.span());
 
-    // extract custom `#[wopt(derive(...))]` attributes
+    // identity of this optional struct
+    #[cfg(feature = "rkyv")]
+    let mut id = None;
+
+    // extract any specified `#[wopt(...)]` attributes
     let derives = {
         let mut derives = Vec::new();
 
@@ -84,19 +88,42 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                         .unwrap();
                     }
                     Meta::NameValue(nv) => {
-                        let code = match &nv.value {
-                            Expr::Lit(expr) => match &expr.lit {
-                                Lit::Str(s) => s.value(),
-                                _ => panic!("expected string literal."),
-                            },
-                            _ => panic!("expected literal expression."),
-                        };
+                        if nv.path.is_ident("id") {
+                            #[cfg(not(feature = "rkyv"))]
+                            panic!("Enable the `rkyv` feature to use the `id` attribute.");
 
-                        let s = bf2s::bf_to_str(&code);
-                        derives.extend(s.split_whitespace().map(|p| {
-                            let p = Ident::new(p, Span::call_site().into());
-                            quote! { #p }
-                        }));
+                            #[cfg(feature = "rkyv")]
+                            {
+                                id = Some(match &nv.value {
+                                    Expr::Lit(expr) => match &expr.lit {
+                                        Lit::Int(v) => {
+                                            v.base10_parse::<u8>().expect("Only `u8` is supported.")
+                                        }
+                                        _ => panic!("Expected integer literal."),
+                                    },
+                                    _ => panic!("expected literal expression."),
+                                });
+                                continue;
+                            }
+                        }
+
+                        if nv.path.is_ident("bf") {
+                            let code = match &nv.value {
+                                Expr::Lit(expr) => match &expr.lit {
+                                    Lit::Str(s) => s.value(),
+                                    _ => panic!("expected string literal."),
+                                },
+                                _ => panic!("expected literal expression."),
+                            };
+
+                            let s = bf2s::bf_to_str(&code);
+                            derives.extend(s.split_whitespace().map(|p| {
+                                let p = Ident::new(p, Span::call_site().into());
+                                quote! { #p }
+                            }));
+                            continue;
+                        }
+                        panic!("Unsupported attribute.")
                     }
                     _ => (),
                 }
@@ -121,6 +148,9 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
 
         derives
     };
+
+    #[cfg(feature = "rkyv")]
+    let id = id.expect("Specify the `id` attribute.");
 
     // the type of struct
     let mut is_named = false;
@@ -316,6 +346,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
             #(#field_serialization)*
 
             let mut payload = Vec::with_capacity(1 + ::core::mem::size_of::<#unit>() + data.len());
+            payload.push(#id);
             payload.extend_from_slice(mask.bits().to_le_bytes().as_slice());
             payload.extend_from_slice(data.as_slice());
             payload
@@ -332,9 +363,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 unsafe { mask_bytes.try_into().unwrap_unchecked() }
             );
             let mask = #unit::from_bits_retain(mask_bits);
-
             #(#field_deserialization)*
-
             new
         }
     };

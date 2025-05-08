@@ -14,6 +14,7 @@ pub mod named {
 
     #[derive(Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
+    #[cfg_attr(feature = "rkyv", wopt(id = 0))]
     pub struct ExampleNamed {
         pub a: u8,
         pub b: f32,
@@ -29,5 +30,6 @@ pub mod unnamed {
 
     #[derive(Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
+    #[cfg_attr(feature = "rkyv", wopt(id = 1))]
     pub struct ExampleUnnamed(pub u8, pub f32, pub i32);
 }
