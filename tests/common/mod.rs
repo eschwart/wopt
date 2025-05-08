@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![allow(unused_imports)]
 
 mod params {
     pub const A: u8 = 69;
@@ -10,8 +11,6 @@ pub mod named {
     pub use super::params::*;
     use wopt::*;
 
-    pub const EXAMPLE_NAMED: ExampleNamed = ExampleNamed { a: A, b: B, c: C };
-
     #[derive(Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
     #[cfg_attr(feature = "rkyv", wopt(id = 0))]
@@ -20,8 +19,6 @@ pub mod named {
         pub b: f32,
         pub c: i32,
     }
-
-    pub const EXAMPLE_NAMED_REQ: ExampleNamedReq = ExampleNamedReq { a: A, b: B, c: C };
 
     #[derive(Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
@@ -38,17 +35,49 @@ pub mod unnamed {
     pub use super::params::*;
     use wopt::*;
 
-    pub const EXAMPLE_UNNAMED: ExampleUnnamed = ExampleUnnamed(A, B, C);
-
     #[derive(Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
     #[cfg_attr(feature = "rkyv", wopt(id = 0))]
     pub struct ExampleUnnamed(pub u8, pub f32, pub i32);
 
-    pub const EXAMPLE_UNNAMED_REA: ExampleUnnamedReq = ExampleUnnamedReq(A, B, C);
-
     #[derive(Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
     #[cfg_attr(feature = "rkyv", wopt(id = 1))]
     pub struct ExampleUnnamedReq(pub u8, #[wopt(required)] pub f32, pub i32);
+}
+
+pub mod unit {
+    use wopt::*;
+
+    #[cfg(feature = "rkyv")]
+    #[derive(Debug, Default, PartialEq, WithOpt)]
+    #[wopt(derive(Debug, Default, PartialEq))]
+    #[wopt(id = 0)]
+    pub struct ExampleUnit;
+}
+
+// if all of this compiles, it works.
+mod bf {
+    pub use super::params::*;
+    use wopt::*;
+
+    #[derive(Debug, Default, PartialEq, WithOpt)]
+    #[wopt(
+        bf = "++++[++++>---<]>+.[-->+++<]>-.---.[--->+<]>-.++[->+++<]>++.-[--->+<]>--.++[->++<]>.[-->+++<]>-.+.-----.--[--->+<]>.---------.++++++++.[---->+<]>+++.[-->+++++<]>.[------->++<]>+.--[--->+<]>---.++.-----------.--------.+++++++++++.[->+++<]>+.-[--->+<]>+++++."
+    )]
+    #[cfg_attr(feature = "rkyv", wopt(id = 0))]
+    pub struct ExampleNamed {
+        pub a: u8,
+        #[wopt(required)]
+        pub b: f32,
+        #[wopt(skip)]
+        pub c: i32,
+    }
+
+    #[derive(Debug, Default, PartialEq, WithOpt)]
+    #[wopt(
+        bf = "++++[++++>---<]>+.[-->+++<]>-.---.[--->+<]>-.++[->+++<]>++.-[--->+<]>--.++[->++<]>.[-->+++<]>-.+.-----.--[--->+<]>.---------.++++++++.[---->+<]>+++.[-->+++++<]>.[------->++<]>+.--[--->+<]>---.++.-----------.--------.+++++++++++.[->+++<]>+.-[--->+<]>+++++."
+    )]
+    #[cfg_attr(feature = "rkyv", wopt(id = 1))]
+    pub struct ExampleUnnamed(pub u8, #[wopt(required)] pub f32, #[wopt(skip)] pub i32);
 }

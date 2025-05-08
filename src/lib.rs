@@ -66,7 +66,36 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     #[cfg(feature = "rkyv")]
     let mut id = None;
 
-    // extract any specified `#[wopt(...)]` attributes
+    #[allow(unused_mut)]
+    let mut is_unit = false;
+
+    // the type of struct
+    let mut is_named = false;
+
+    // match on the fields of the struct
+    let info: Vec<_> = if let syn::Data::Struct(ref data) = input.data {
+        match &data.fields {
+            Fields::Named(fields) => {
+                is_named = true;
+                get_field_kvs(fields.named.iter(), true)
+            }
+            Fields::Unnamed(fields) => get_field_kvs(fields.unnamed.iter(), false),
+            _ => {
+                #[cfg(not(feature = "rkyv"))]
+                panic!("Unit structs are only supported with the `rkyv` feature.");
+
+                #[cfg(feature = "rkyv")]
+                {
+                    is_unit = true;
+                    vec![]
+                }
+            }
+        }
+    } else {
+        panic!("Only structs are supported");
+    };
+
+    // process any `#[wopt(...)]` attributes
     let derives = {
         let mut derives = Vec::new();
 
@@ -98,19 +127,18 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                                         }
                                         _ => panic!("Expected integer literal."),
                                     },
-                                    _ => panic!("expected literal expression."),
+                                    _ => panic!("Expected literal expression."),
                                 });
                                 continue;
                             }
                         }
-
                         if nv.path.is_ident("bf") {
                             let code = match &nv.value {
                                 Expr::Lit(expr) => match &expr.lit {
                                     Lit::Str(s) => s.value(),
-                                    _ => panic!("expected string literal."),
+                                    _ => panic!("Expected string literal."),
                                 },
-                                _ => panic!("expected literal expression."),
+                                _ => panic!("Expected literal expression."),
                             };
 
                             let s = bf2s::bf_to_str(&code);
@@ -126,32 +154,15 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 }
             }
         }
-
         #[cfg(feature = "rkyv")]
-        derives.extend([quote! { ::enum_unit::EnumUnit }]);
-
+        if !is_unit {
+            derives.extend([quote! { ::enum_unit::EnumUnit }]);
+        }
         derives
     };
 
     #[cfg(feature = "rkyv")]
     let id = id.expect("Specify the `id` attribute.");
-
-    // the type of struct
-    let mut is_named = false;
-
-    // match on the fields of the struct
-    let info: Vec<_> = if let syn::Data::Struct(ref data) = input.data {
-        match &data.fields {
-            Fields::Named(fields) => {
-                is_named = true;
-                get_field_kvs(fields.named.iter(), true)
-            }
-            Fields::Unnamed(fields) => get_field_kvs(fields.unnamed.iter(), false),
-            _ => panic!("Unit structs are not supported."),
-        }
-    } else {
-        panic!("Only structs are supported");
-    };
 
     #[cfg(feature = "rkyv")]
     let unit = Ident::new(&format!("{}Unit", opt_name), Span::call_site().into());
@@ -276,34 +287,42 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     }
 
     #[cfg(feature = "rkyv")]
-    let serialize = quote! {
-        pub fn serialize(&self) -> Vec<u8> {
-            let mut data = Vec::with_capacity(::core::mem::size_of_val(self));
-            let mut arena = ::rkyv::ser::allocator::Arena::default();
-            let mut mask = #unit::empty();
-
-            #(#field_serialization)*
-
-            let mut payload = Vec::with_capacity(1 + ::core::mem::size_of::<#unit>() + data.len());
-            payload.push(#id);
-            payload.extend_from_slice(mask.bits().to_le_bytes().as_slice());
-            payload.extend_from_slice(data.as_slice());
-            payload
+    let serde = if is_unit {
+        quote! {
+            pub fn serialize(&self) -> Vec<u8> {
+                vec![#id]
+            }
         }
+    } else {
+        quote! {
+            pub fn serialize(&self) -> Vec<u8> {
+                let mut data = Vec::with_capacity(::core::mem::size_of_val(self));
+                let mut arena = ::rkyv::ser::allocator::Arena::default();
+                let mut mask = #unit::empty();
 
-        pub fn deserialize(bytes: &[u8]) -> Self {
-            let mut new = Self::default();
+                #(#field_serialization)*
 
-            let mut h = 0;
-            let mut t = size_of::<#unit>();
+                let mut payload = Vec::with_capacity(1 + ::core::mem::size_of::<#unit>() + data.len());
+                payload.push(#id);
+                payload.extend_from_slice(mask.bits().to_le_bytes().as_slice());
+                payload.extend_from_slice(data.as_slice());
+                payload
+            }
 
-            let mask_bytes = &bytes[..t];
-            let mask_bits = <#unit as ::bitflags::Flags>::Bits::from_le_bytes(
-                unsafe { mask_bytes.try_into().unwrap_unchecked() }
-            );
-            let mask = #unit::from_bits_retain(mask_bits);
-            #(#field_deserialization)*
-            new
+            pub fn deserialize(bytes: &[u8]) -> Self {
+                let mut new = Self::default();
+
+                let mut h = 0;
+                let mut t = size_of::<#unit>();
+
+                let mask_bytes = &bytes[..t];
+                let mask_bits = <#unit as ::bitflags::Flags>::Bits::from_le_bytes(
+                    unsafe { mask_bytes.try_into().unwrap_unchecked() }
+                );
+                let mask = #unit::from_bits_retain(mask_bits);
+                #(#field_deserialization)*
+                new
+            }
         }
     };
 
@@ -315,6 +334,11 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 #(#fields),*
             }
         }
+    } else if is_unit {
+        quote! {
+            #[derive(#(#derives),*)]
+            pub struct #opt_name;
+        }
     } else {
         quote! {
             #[derive(#(#derives),*)]
@@ -322,7 +346,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
         }
     };
 
-    let (impl_name, impl_opt_name) = if upts.is_empty() {
+    let (impl_name, impl_opt_name) = if upts.is_empty() || is_unit {
         Default::default()
     } else {
         let patch = quote! {
@@ -344,17 +368,6 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
             }
         };
 
-        let impl_opt_name = quote! {
-            #is_modified
-            #take
-        };
-
-        #[cfg(feature = "rkyv")]
-        let impl_opt_name = quote! {
-            #impl_opt_name
-            #serialize
-        };
-
         (
             quote! {
                 impl #name {
@@ -362,11 +375,22 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 }
             },
             quote! {
-                impl #opt_name {
-                    #impl_opt_name
-                }
+                #is_modified
+                #take
             },
         )
+    };
+
+    #[cfg(feature = "rkyv")]
+    let impl_opt_name = quote! {
+        #impl_opt_name
+        #serde
+    };
+
+    let impl_opt_name = quote! {
+        impl #opt_name {
+            #impl_opt_name
+        }
     };
 
     quote! {
