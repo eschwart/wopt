@@ -5,9 +5,6 @@ use syn::{
     punctuated::Iter,
 };
 
-#[cfg(all(feature = "rkyv-full", feature = "serde"))]
-compile_error!("Features `rkyv-full` and `serde` cannot be enabled at the same time!");
-
 fn get_field_kvs(
     fields: Iter<Field>,
     is_named: bool,
@@ -133,19 +130,6 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
         #[cfg(feature = "rkyv")]
         derives.extend([quote! { ::enum_unit::EnumUnit }]);
 
-        #[cfg(feature = "rkyv-full")]
-        derives.extend([
-            quote! { ::rkyv::Archive },
-            quote! { ::rkyv::Serialize },
-            quote! { ::rkyv::Deserialize },
-        ]);
-
-        #[cfg(feature = "serde")]
-        derives.extend([
-            quote! { ::serde::Serialize },
-            quote! { ::serde::Deserialize },
-        ]);
-
         derives
     };
 
@@ -190,17 +174,16 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 {
                     field_serialization.push(quote! {
                         data.extend_from_slice(
-                            &unsafe { ::rkyv::api::high::to_bytes_with_alloc::<_, ::rkyv::rancor::Error>(self.#field_name, arena.acquire()).unwrap_unchecked() },
+                            &unsafe { ::rkyv::api::high::to_bytes_with_alloc::<_, ::rkyv::rancor::Error>(&self.#field_name, arena.acquire()).unwrap_unchecked() },
                         );
                     });
 
                     field_deserialization.push(quote! {
                         h = t;
                         t += ::core::mem::size_of::<#field_type>();
-                        new.#field_name = Some(unsafe { ::rkyv::from_bytes::<#field_type, ::rkyv::rancor::Error>(&bytes[h..t]).unwrap_unchecked() });
+                        new.#field_name = unsafe { ::rkyv::from_bytes::<#field_type, ::rkyv::rancor::Error>(&bytes[h..t]).unwrap_unchecked() };
                     });
                 }
-
                 fields.push(quote! { pub #field_name: #field_type });
                 take.push(quote! { #field_name: self.#field_name });
             } else {
@@ -230,7 +213,6 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                         }
                     });
                 }
-
                 fields.push(quote! { pub #field_name: Option<#field_type> });
                 upts.push(quote! { if let Some(#field_name) = rhs.#field_name {
                     self.#field_name = #field_name
@@ -247,17 +229,16 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 {
                     field_serialization.push(quote! {
                         data.extend_from_slice(
-                            &unsafe { ::rkyv::api::high::to_bytes_with_alloc::<_, ::rkyv::rancor::Error>(self.#index, arena.acquire()).unwrap_unchecked() },
+                            &unsafe { ::rkyv::api::high::to_bytes_with_alloc::<_, ::rkyv::rancor::Error>(&self.#index, arena.acquire()).unwrap_unchecked() },
                         );
                     });
 
                     field_deserialization.push(quote! {
                         h = t;
                         t += ::core::mem::size_of::<#field_type>();
-                        new.#index = Some(unsafe { ::rkyv::from_bytes::<#field_type, ::rkyv::rancor::Error>(&bytes[h..t]).unwrap_unchecked() });
+                        new.#index = unsafe { ::rkyv::from_bytes::<#field_type, ::rkyv::rancor::Error>(&bytes[h..t]).unwrap_unchecked() };
                     });
                 };
-
                 fields.push(quote! { pub #field_type });
                 take.push(quote! { #index: self.#index });
             } else {
@@ -284,7 +265,6 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                         }
                     });
                 };
-
                 fields.push(quote! { pub Option<#field_type> });
                 upts.push(quote! { if let Some(#var) = rhs.#index {
                     self.#index = #var
@@ -294,47 +274,6 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
             }
         };
     }
-
-    // generate the new struct
-    let structure = if is_named {
-        quote! {
-            #[derive(#(#derives),*)]
-            pub struct #opt_name {
-                #(#fields),*
-            }
-        }
-    } else {
-        quote! {
-            #[derive(#(#derives),*)]
-            pub struct #opt_name(#(#fields),*);
-        }
-    };
-
-    let doc_comment = format!(
-        "Apply all modifications from [`{}`] to [`{}`].",
-        opt_name, name
-    );
-    let patch = quote! {
-        #[doc = #doc_comment]
-        pub fn patch(&mut self, rhs: &mut #opt_name) {
-            let rhs = rhs.take();
-            #(#upts)*
-        }
-    };
-
-    let is_modified = quote! {
-        pub const fn is_modified(&self) -> bool {
-            #(#mods)||*
-        }
-    };
-
-    let take = quote! {
-        pub const fn take(&mut self) -> Self {
-            Self {
-                #(#take),*
-            }
-        }
-    };
 
     #[cfg(feature = "rkyv")]
     let serialize = quote! {
@@ -368,35 +307,72 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
         }
     };
 
-    #[cfg(not(feature = "rkyv"))]
-    let expanded = quote! {
-        #structure
-
-        impl #name {
-            #patch
+    // generate the new struct
+    let structure = if is_named {
+        quote! {
+            #[derive(#(#derives),*)]
+            pub struct #opt_name {
+                #(#fields),*
+            }
         }
-
-        impl #opt_name {
-            #is_modified
-            #take
+    } else {
+        quote! {
+            #[derive(#(#derives),*)]
+            pub struct #opt_name(#(#fields),*);
         }
     };
 
-    #[cfg(feature = "rkyv")]
-    let expanded = quote! {
-        #structure
+    let (impl_name, impl_opt_name) = if upts.is_empty() {
+        Default::default()
+    } else {
+        let patch = quote! {
+            pub fn patch(&mut self, rhs: &mut #opt_name) {
+                let rhs = rhs.take();
+                #(#upts)*
+            }
+        };
+        let is_modified = quote! {
+            pub const fn is_modified(&self) -> bool {
+                #(#mods)||*
+            }
+        };
+        let take = quote! {
+            pub const fn take(&mut self) -> Self {
+                Self {
+                    #(#take),*
+                }
+            }
+        };
 
-        impl #name {
-            #patch
-        }
+        let impl_opt_name = quote! {
+            #is_modified
+            #take
+        };
 
-        impl #opt_name {
+        #[cfg(feature = "rkyv")]
+        let impl_opt_name = quote! {
+            #impl_opt_name
             #serialize
-            #is_modified
-            #take
-        }
+        };
+
+        (
+            quote! {
+                impl #name {
+                    #patch
+                }
+            },
+            quote! {
+                impl #opt_name {
+                    #impl_opt_name
+                }
+            },
+        )
     };
 
-    // convert into TokenStream
-    expanded.into()
+    quote! {
+        #structure
+        #impl_name
+        #impl_opt_name
+    }
+    .into()
 }

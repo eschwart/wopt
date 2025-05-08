@@ -20,6 +20,18 @@ pub mod named {
         pub b: f32,
         pub c: i32,
     }
+
+    pub const EXAMPLE_NAMED_REQ: ExampleNamedReq = ExampleNamedReq { a: A, b: B, c: C };
+
+    #[derive(Debug, Default, PartialEq, WithOpt)]
+    #[wopt(derive(Debug, Default, PartialEq))]
+    #[cfg_attr(feature = "rkyv", wopt(id = 1))]
+    pub struct ExampleNamedReq {
+        pub a: u8,
+        #[wopt(required)]
+        pub b: f32,
+        pub c: i32,
+    }
 }
 
 pub mod unnamed {
@@ -30,6 +42,13 @@ pub mod unnamed {
 
     #[derive(Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
-    #[cfg_attr(feature = "rkyv", wopt(id = 1))]
+    #[cfg_attr(feature = "rkyv", wopt(id = 0))]
     pub struct ExampleUnnamed(pub u8, pub f32, pub i32);
+
+    pub const EXAMPLE_UNNAMED_REA: ExampleUnnamedReq = ExampleUnnamedReq(A, B, C);
+
+    #[derive(Debug, Default, PartialEq, WithOpt)]
+    #[wopt(derive(Debug, Default, PartialEq))]
+    #[cfg_attr(feature = "rkyv", wopt(id = 1))]
+    pub struct ExampleUnnamedReq(pub u8, #[wopt(required)] pub f32, pub i32);
 }
