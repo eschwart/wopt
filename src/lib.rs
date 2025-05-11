@@ -56,9 +56,8 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     // parse the input tokens into a syntax tree
     let input = parse_macro_input!(input as DeriveInput);
 
-    // get the struct name and generate the Opt name
+    // get the struct name
     let name = &input.ident;
-    let opt_name = Ident::new(&format!("{}Opt", name), name.span());
 
     // identity of this optional struct
     #[cfg(feature = "rkyv")]
@@ -170,6 +169,12 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     #[cfg(feature = "rkyv")]
     let id_opt = id_og + i8::MAX as u8;
 
+    let opt_name = if is_unit {
+        name.clone()
+    } else {
+        Ident::new(&format!("{}Opt", name), name.span())
+    };
+
     #[cfg(feature = "rkyv")]
     let unit = Ident::new(&format!("{}Unit", opt_name), Span::call_site().into());
 
@@ -241,7 +246,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 take.push(quote! { #field_name: self.#field_name });
             } else {
                 #[cfg(feature = "rkyv")]
-                {
+                if !is_unit {
                     let unit_name = Ident::new(
                         &convert_case::Casing::to_case(
                             &field_name.to_string(),
@@ -317,7 +322,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 take.push(quote! { #index: self.#index });
             } else {
                 #[cfg(feature = "rkyv")]
-                {
+                if !is_unit {
                     let unit_name = Ident::new(
                         &format!("{}{}", enum_unit_core::prefix(), i),
                         Span::call_site().into(),
@@ -338,7 +343,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                             new.#index = Some(unsafe { ::rkyv::from_bytes::<#field_type, ::rkyv::rancor::Error>(&bytes[h..t]).#unwrap() });
                         }
                     });
-                };
+                }
                 fields.push(quote! { pub Option<#field_type> });
                 upts.push(quote! { if let Some(#var) = rhs.#index {
                     self.#index = #var
@@ -353,10 +358,10 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     let (serde_og, serde_opt) = if is_unit {
         let serde = quote! {
             pub const fn serialize() -> [u8; 1] {
-                [#id_opt]
+                [#id_og]
             }
         };
-        (serde.clone(), serde)
+        (serde, quote! {})
     } else {
         let serde_og = quote! {
             pub fn serialize(&self) -> Vec<u8> {
@@ -414,6 +419,21 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
         (serde_og, serde_opt)
     };
 
+    // this is just filthy
+    if is_unit {
+        #[cfg(not(feature = "rkyv"))]
+        return quote! {}.into();
+
+        #[cfg(feature = "rkyv")]
+        return quote! {
+            impl #name {
+                pub const ID: u8 = #id_og;
+                #serde_og
+            }
+        }
+        .into();
+    }
+
     // generate the new struct
     let structure = if is_named {
         quote! {
@@ -423,10 +443,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
             }
         }
     } else if is_unit {
-        quote! {
-            #[derive(#(#derives),*)]
-            pub struct #opt_name;
-        }
+        quote! {}
     } else {
         quote! {
             #[derive(#(#derives),*)]
