@@ -377,8 +377,8 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
             }
 
             pub fn deserialize(bytes: &[u8]) -> Self {
-                 let mut h = 0;
-                let mut t = size_of::<#unit>();
+                let mut h = 0;
+                let mut t = 0;
 
                 #(#field_deserialization)*
 
