@@ -80,7 +80,7 @@ fn test_rkyv_serialize() {
     ex_opt.2 = Some(C);
 
     let serialized = ex_opt.serialize();
-    assert_eq!(serialized, [0, 5, 69, 0, 248, 255, 255]);
+    assert_eq!(serialized, [127, 5, 69, 0, 248, 255, 255]);
 }
 
 #[test]
@@ -91,13 +91,13 @@ fn test_rkyv_serialize_req() {
     ex_opt.1 = B;
 
     let serialized = ex_opt.serialize();
-    assert_eq!(serialized, [1, 1, 69, 0, 0, 210, 67]);
+    assert_eq!(serialized, [128, 1, 69, 0, 0, 210, 67]);
 }
 
 #[test]
 #[cfg(feature = "rkyv")]
 fn test_rkyv_deserialize() {
-    let bytes = [0, 5, 69, 0, 248, 255, 255];
+    let bytes = [127, 5, 69, 0, 248, 255, 255];
 
     let deserialized = ExampleUnnamedOpt::deserialize(&bytes[1..]);
     assert_eq!(

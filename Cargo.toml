@@ -1,6 +1,6 @@
 [package]
 name = "wopt"
-version = "0.2.5"
+version = "0.2.6"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/splurf/wopt"
@@ -27,6 +27,7 @@ bitflags = "2.9.0"
 
 [features]
 rkyv = ["dep:enum-unit", "dep:enum-unit-core", "dep:rkyv"]
+unchecked = []
 
 [profile.release]
 lto = true
