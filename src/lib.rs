@@ -1,9 +1,12 @@
 use proc_macro::{Span, TokenStream};
 use quote::quote;
 use syn::{
-    DeriveInput, Expr, Field, Fields, Ident, Index, Lit, LitStr, Meta, Type, parse_macro_input,
+    DeriveInput, Field, Fields, Ident, Index, LitStr, Meta, Type, parse_macro_input,
     punctuated::Iter,
 };
+
+#[cfg(any(feature = "bf", feature = "rkyv"))]
+use syn::{Expr, Lit};
 
 #[cfg(all(not(feature = "rkyv"), feature = "unchecked"))]
 compile_error!("Feature `unchecked` requires feature `rkyv`.");
