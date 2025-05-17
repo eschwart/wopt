@@ -75,29 +75,83 @@ fn test_stable_req() {
 #[test]
 #[cfg(feature = "rkyv")]
 fn test_rkyv_serialize() {
+    let ex = ExampleNamed { a: A, b: B, c: C };
+
+    let serialized = ex.serialize();
+    assert_eq!(
+        serialized,
+        [ExampleNamed::ID, 69, 0, 0, 210, 67, 0, 248, 255, 255]
+    );
+}
+
+#[test]
+#[cfg(feature = "rkyv")]
+fn test_rkyv_serialize_with() {
+    let ex = ExampleNamedWith { a: A, b: B, c: C };
+
+    let serialized = ex.serialize();
+    assert_eq!(
+        serialized,
+        [ExampleNamedWith::ID, 69, 0, 0, 210, 67, 0, 248, 255, 255]
+    );
+}
+
+#[test]
+#[cfg(feature = "rkyv")]
+fn test_rkyv_serialize_opt() {
     let mut ex_opt = ExampleNamedOpt::default();
     ex_opt.a = Some(A);
     ex_opt.c = Some(C);
 
     let serialized = ex_opt.serialize();
-    assert_eq!(serialized, [127, 5, 69, 0, 248, 255, 255]);
+    assert_eq!(serialized, [ExampleNamedOpt::ID, 5, 69, 0, 248, 255, 255]);
 }
 
 #[test]
 #[cfg(feature = "rkyv")]
 fn test_rkyv_serialize_req() {
+    let ex = ExampleNamedReq { a: A, b: B, c: C };
+
+    let serialized = ex.serialize();
+    assert_eq!(
+        serialized,
+        [ExampleNamedReq::ID, 69, 0, 0, 210, 67, 0, 248, 255, 255]
+    );
+}
+
+#[test]
+#[cfg(feature = "rkyv")]
+fn test_rkyv_serialize_req_opt() {
     let mut ex_opt = ExampleNamedReqOpt::default();
     ex_opt.a = Some(A);
     ex_opt.b = B;
 
     let serialized = ex_opt.serialize();
-    assert_eq!(serialized, [128, 1, 69, 0, 0, 210, 67]);
+    assert_eq!(serialized, [ExampleNamedReqOpt::ID, 1, 69, 0, 0, 210, 67]);
 }
 
 #[test]
 #[cfg(feature = "rkyv")]
 fn test_rkyv_deserialize() {
-    let bytes = [127, 5, 69, 0, 248, 255, 255];
+    let bytes = [ExampleNamed::ID, 69, 0, 0, 210, 67, 0, 248, 255, 255];
+
+    let deserialized = ExampleNamed::deserialize(&bytes[1..]);
+    assert_eq!(deserialized, ExampleNamed { a: A, b: B, c: C });
+}
+
+#[test]
+#[cfg(feature = "rkyv")]
+fn test_rkyv_deserialize_with() {
+    let bytes = [ExampleNamedWith::ID, 69, 0, 0, 210, 67, 0, 248, 255, 255];
+
+    let deserialized = ExampleNamedWith::deserialize(&bytes[1..]);
+    assert_eq!(deserialized, ExampleNamedWith { a: A, b: B, c: C });
+}
+
+#[test]
+#[cfg(feature = "rkyv")]
+fn test_rkyv_deserialize_opt() {
+    let bytes = [ExampleNamedOpt::ID, 5, 69, 0, 248, 255, 255];
 
     let deserialized = ExampleNamedOpt::deserialize(&bytes[1..]);
     assert_eq!(
@@ -113,7 +167,16 @@ fn test_rkyv_deserialize() {
 #[test]
 #[cfg(feature = "rkyv")]
 fn test_rkyv_deserialize_req() {
-    let bytes = [1, 1, 69, 0, 0, 210, 67];
+    let bytes = [ExampleNamedReq::ID, 69, 0, 0, 210, 67, 0, 248, 255, 255];
+
+    let deserialized = ExampleNamedReq::deserialize(&bytes[1..]);
+    assert_eq!(deserialized, ExampleNamedReq { a: A, b: B, c: C });
+}
+
+#[test]
+#[cfg(feature = "rkyv")]
+fn test_rkyv_deserialize_req_opt() {
+    let bytes = [ExampleNamedReqOpt::ID, 1, 69, 0, 0, 210, 67];
 
     let deserialized = ExampleNamedReqOpt::deserialize(&bytes[1..]);
     assert_eq!(
