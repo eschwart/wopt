@@ -1,7 +1,7 @@
 use proc_macro::{Span, TokenStream};
 use quote::quote;
 use syn::{
-    DeriveInput, Field, Fields, Ident, Index, LitStr, Meta, Type, parse_macro_input,
+    DeriveInput, Field, Fields, Ident, Index, LitStr, Meta, Path, Type, parse_macro_input,
     punctuated::Iter,
 };
 
@@ -14,13 +14,7 @@ compile_error!("Feature `unchecked` requires feature `rkyv`.");
 fn get_field_kvs(
     fields: Iter<Field>,
     is_named: bool,
-) -> Vec<(
-    Option<&Option<Ident>>,
-    &Type,
-    bool,
-    bool,
-    Option<[Ident; 2]>,
-)> {
+) -> Vec<(Option<&Option<Ident>>, &Type, bool, bool, Option<[Path; 2]>)> {
     fields
         .map(|field: &Field| {
             if field.attrs.len() > 1 {
@@ -39,12 +33,14 @@ fn get_field_kvs(
                                 "ser" => {
                                     let value = a.value()?;
                                     let s: LitStr = value.parse()?;
-                                    ser = Some(s.value())
+                                    let p = syn::parse_str::<Path>(s.value().as_str())?;
+                                    ser = Some(p)
                                 }
                                 "de" => {
                                     let value = a.value()?;
                                     let s: LitStr = value.parse()?;
-                                    de = Some(s.value())
+                                    let p = syn::parse_str::<Path>(s.value().as_str())?;
+                                    de = Some(p)
                                 }
                                 attr => panic!("Unsupported attribute ({}).", attr),
                             }
@@ -63,12 +59,7 @@ fn get_field_kvs(
             let mut _serde_fn = None;
             match (ser, de) {
                 (None, None) => (),
-                (Some(ser), Some(de)) => {
-                    _serde_fn = Some([
-                        Ident::new(&ser, Span::call_site().into()),
-                        Ident::new(&de, Span::call_site().into()),
-                    ])
-                }
+                (Some(ser), Some(de)) => _serde_fn = Some([ser, de]),
                 _ => panic!("Both ser/de need to be implemented."),
             }
 

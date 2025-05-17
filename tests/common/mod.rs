@@ -44,7 +44,7 @@ pub mod named {
     #[cfg_attr(feature = "rkyv", wopt(id = 2))]
     pub struct ExampleNamedWith {
         pub a: u8,
-        #[wopt(ser = "ser_f32", de = "de_f32")]
+        #[wopt(ser = "super::params::ser_f32", de = "de_f32")]
         pub b: f32,
         pub c: i32,
     }
