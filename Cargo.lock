@@ -10,9 +10,9 @@ checksum = "55492cc0410af45fa6030a3f4516d28166e17f52c1f50dc3185627f5e56a9316"
 
 [[package]]
 name = "bitflags"
-version = "2.9.0"
+version = "2.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c8214115b7bf84099f1309324e63141d4c5d7cc26862f97a0a857dbefe165bd"
+checksum = "1b8e56985ec62d17e9c1001dc89c88ecd7dc08e47eba5ec7c29c7b5eeecde967"
 dependencies = [
  "serde",
 ]
@@ -39,6 +39,12 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "bytemuck"
+version = "1.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9134a6ef01ce4b366b50689c94f82c14bc72bc5d0386829828a2e2752ef7958c"
 
 [[package]]
 name = "bytes"
@@ -274,10 +280,11 @@ checksum = "458f7a779bf54acc9f347480ac654f68407d3aab21269a6e3c9f922acd9e2da9"
 
 [[package]]
 name = "wopt"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "bf2s",
  "bitflags",
+ "bytemuck",
  "convert_case",
  "enum-unit",
  "enum-unit-core",
