@@ -22,7 +22,7 @@ pub mod named {
 
     #[derive(Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
-    #[cfg_attr(feature = "rkyv", wopt(id = 0))]
+    #[cfg_attr(feature = "bytemuck", wopt(id = 0))]
     pub struct ExampleNamed {
         pub a: u8,
         pub b: f32,
@@ -31,7 +31,7 @@ pub mod named {
 
     #[derive(Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
-    #[cfg_attr(feature = "rkyv", wopt(id = 1))]
+    #[cfg_attr(feature = "bytemuck", wopt(id = 1))]
     pub struct ExampleNamedReq {
         pub a: u8,
         #[wopt(required)]
@@ -41,7 +41,7 @@ pub mod named {
 
     #[derive(Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
-    #[cfg_attr(feature = "rkyv", wopt(id = 2))]
+    #[cfg_attr(feature = "bytemuck", wopt(id = 2))]
     pub struct ExampleNamedWith {
         pub a: u8,
         #[wopt(ser = "super::params::ser_f32", de = "de_f32")]
@@ -56,17 +56,17 @@ pub mod unnamed {
 
     #[derive(Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
-    #[cfg_attr(feature = "rkyv", wopt(id = 0))]
+    #[cfg_attr(feature = "bytemuck", wopt(id = 0))]
     pub struct ExampleUnnamed(pub u8, pub f32, pub i32);
 
     #[derive(Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
-    #[cfg_attr(feature = "rkyv", wopt(id = 1))]
+    #[cfg_attr(feature = "bytemuck", wopt(id = 1))]
     pub struct ExampleUnnamedReq(pub u8, #[wopt(required)] pub f32, pub i32);
 
     #[derive(Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
-    #[cfg_attr(feature = "rkyv", wopt(id = 2))]
+    #[cfg_attr(feature = "bytemuck", wopt(id = 2))]
     pub struct ExampleUnnamedWith(
         pub u8,
         #[wopt(ser = "ser_f32", de = "de_f32")] pub f32,
@@ -77,7 +77,7 @@ pub mod unnamed {
 pub mod unit {
     use wopt::*;
 
-    #[cfg(feature = "rkyv")]
+    #[cfg(feature = "bytemuck")]
     #[derive(Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
     #[wopt(id = 0)]
@@ -94,7 +94,7 @@ mod bf {
     #[wopt(
         bf = "++++[++++>---<]>+.[-->+++<]>-.---.[--->+<]>-.++[->+++<]>++.-[--->+<]>--.++[->++<]>.[-->+++<]>-.+.-----.--[--->+<]>.---------.++++++++.[---->+<]>+++.[-->+++++<]>.[------->++<]>+.--[--->+<]>---.++.-----------.--------.+++++++++++.[->+++<]>+.-[--->+<]>+++++."
     )]
-    #[cfg_attr(feature = "rkyv", wopt(id = 0))]
+    #[cfg_attr(feature = "bytemuck", wopt(id = 0))]
     pub struct ExampleNamed {
         pub a: u8,
         #[wopt(required)]
@@ -107,6 +107,6 @@ mod bf {
     #[wopt(
         bf = "++++[++++>---<]>+.[-->+++<]>-.---.[--->+<]>-.++[->+++<]>++.-[--->+<]>--.++[->++<]>.[-->+++<]>-.+.-----.--[--->+<]>.---------.++++++++.[---->+<]>+++.[-->+++++<]>.[------->++<]>+.--[--->+<]>---.++.-----------.--------.+++++++++++.[->+++<]>+.-[--->+<]>+++++."
     )]
-    #[cfg_attr(feature = "rkyv", wopt(id = 1))]
+    #[cfg_attr(feature = "bytemuck", wopt(id = 1))]
     pub struct ExampleUnnamed(pub u8, #[wopt(required)] pub f32, #[wopt(skip)] pub i32);
 }

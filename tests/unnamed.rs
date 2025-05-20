@@ -73,7 +73,7 @@ fn test_stable_req() {
 }
 
 #[test]
-#[cfg(feature = "rkyv")]
+#[cfg(feature = "bytemuck")]
 fn test_rkyv_serialize() {
     let ex = ExampleUnnamed { 0: A, 1: B, 2: C };
 
@@ -85,7 +85,7 @@ fn test_rkyv_serialize() {
 }
 
 #[test]
-#[cfg(feature = "rkyv")]
+#[cfg(feature = "bytemuck")]
 fn test_rkyv_serialize_with() {
     let ex = ExampleUnnamedWith { 0: A, 1: B, 2: C };
 
@@ -97,7 +97,7 @@ fn test_rkyv_serialize_with() {
 }
 
 #[test]
-#[cfg(feature = "rkyv")]
+#[cfg(feature = "bytemuck")]
 fn test_rkyv_serialize_opt() {
     let mut ex_opt = ExampleUnnamedOpt::default();
     ex_opt.0 = Some(A);
@@ -108,7 +108,7 @@ fn test_rkyv_serialize_opt() {
 }
 
 #[test]
-#[cfg(feature = "rkyv")]
+#[cfg(feature = "bytemuck")]
 fn test_rkyv_serialize_req() {
     let ex = ExampleUnnamedReq { 0: A, 1: B, 2: C };
 
@@ -120,7 +120,7 @@ fn test_rkyv_serialize_req() {
 }
 
 #[test]
-#[cfg(feature = "rkyv")]
+#[cfg(feature = "bytemuck")]
 fn test_rkyv_serialize_req_opt() {
     let mut ex_opt = ExampleUnnamedReqOpt::default();
     ex_opt.0 = Some(A);
@@ -131,7 +131,7 @@ fn test_rkyv_serialize_req_opt() {
 }
 
 #[test]
-#[cfg(feature = "rkyv")]
+#[cfg(feature = "bytemuck")]
 fn test_rkyv_deserialize() {
     let bytes = [ExampleUnnamed::ID, 69, 0, 0, 210, 67, 0, 248, 255, 255];
 
@@ -140,7 +140,7 @@ fn test_rkyv_deserialize() {
 }
 
 #[test]
-#[cfg(feature = "rkyv")]
+#[cfg(feature = "bytemuck")]
 fn test_rkyv_deserialize_with() {
     let bytes = [ExampleUnnamedWith::ID, 69, 0, 0, 210, 67, 0, 248, 255, 255];
 
@@ -149,7 +149,7 @@ fn test_rkyv_deserialize_with() {
 }
 
 #[test]
-#[cfg(feature = "rkyv")]
+#[cfg(feature = "bytemuck")]
 fn test_rkyv_deserialize_opt() {
     let bytes = [ExampleUnnamedOpt::ID, 5, 69, 0, 248, 255, 255];
 
@@ -165,7 +165,7 @@ fn test_rkyv_deserialize_opt() {
 }
 
 #[test]
-#[cfg(feature = "rkyv")]
+#[cfg(feature = "bytemuck")]
 fn test_rkyv_deserialize_req() {
     let bytes = [ExampleUnnamedReq::ID, 69, 0, 0, 210, 67, 0, 248, 255, 255];
 
@@ -174,7 +174,7 @@ fn test_rkyv_deserialize_req() {
 }
 
 #[test]
-#[cfg(feature = "rkyv")]
+#[cfg(feature = "bytemuck")]
 fn test_rkyv_deserialize_req_opt() {
     let bytes = [ExampleUnnamedReqOpt::ID, 1, 69, 0, 0, 210, 67];
 

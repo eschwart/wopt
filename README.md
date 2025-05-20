@@ -42,7 +42,7 @@ fn main() {
 ## Optional Features
 | Name | Description |
 | ---- | ----------- |
-| [rkyv](https://crates.io/crates/bitflags) | Serialize/Deserialize using `rkyv`. |
+| [bytemuck](https://crates.io/crates/bitflags) | Serialize/Deserialize using `bytemuck`. |
 | [serde](https://crates.io/crates/serde)   | Seriailze/Deserialize using `serde`. |
 
 
