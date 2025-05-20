@@ -16,7 +16,7 @@ struct FieldAttrs<'a> {
     field_type: &'a Type,
     is_required: bool,
     is_skipped: bool,
-    serde_fn: Option<[Path; 2]>,
+    _serde_fn: Option<[Path; 2]>,
 }
 
 fn get_field_kvs(fields: Iter<Field>, is_named: bool) -> Vec<FieldAttrs> {
@@ -61,10 +61,10 @@ fn get_field_kvs(fields: Iter<Field>, is_named: bool) -> Vec<FieldAttrs> {
             }
 
             // check if ser/de is complete, is provided
-            let mut serde_fn = None;
+            let mut _serde_fn = None;
             match (ser, de) {
                 (None, None) => (),
-                (Some(ser), Some(de)) => serde_fn = Some([ser, de]),
+                (Some(ser), Some(de)) => _serde_fn = Some([ser, de]),
                 _ => panic!("Both ser/de need to be implemented."),
             }
 
@@ -73,7 +73,7 @@ fn get_field_kvs(fields: Iter<Field>, is_named: bool) -> Vec<FieldAttrs> {
                 field_type: &field.ty,
                 is_required,
                 is_skipped,
-                serde_fn,
+                _serde_fn,
             }
         })
         .collect()
@@ -245,14 +245,14 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
             field_type,
             is_required,
             is_skipped,
-            serde_fn,
+            _serde_fn,
         },
     ) in info.iter().enumerate()
     {
         if let Some(field_name) = field_name_opt.cloned().map(|o| o.unwrap()) {
             #[cfg(feature = "bytemuck")]
             {
-                if let Some([ser, de]) = serde_fn {
+                if let Some([ser, de]) = _serde_fn {
                     field_serialization.push(quote! {
                         data.extend_from_slice(
                             #ser(&self.#field_name).as_ref(),
@@ -285,7 +285,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
             if *is_required {
                 #[cfg(feature = "bytemuck")]
                 {
-                    if let Some([ser, de]) = serde_fn {
+                    if let Some([ser, de]) = _serde_fn {
                         field_serialization_opt.push(quote! {
                             data.extend_from_slice(
                                 #ser(&self.#field_name).as_ref(),
@@ -320,7 +320,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                         Span::call_site().into(),
                     );
 
-                    if let Some([ser, de]) = serde_fn {
+                    if let Some([ser, de]) = _serde_fn {
                         field_serialization_opt.push(quote! {
                             if let Some(val) = self.#field_name.as_ref() {
                                 mask |= #unit::#unit_name;
@@ -364,7 +364,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
 
             #[cfg(feature = "bytemuck")]
             {
-                if let Some([ser, de]) = serde_fn {
+                if let Some([ser, de]) = _serde_fn {
                     field_serialization.push(quote! {
                         data.extend_from_slice(
                             #ser(&self.#index).as_ref(),
@@ -396,7 +396,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
 
             if *is_required {
                 #[cfg(feature = "bytemuck")]
-                if let Some([ser, de]) = serde_fn {
+                if let Some([ser, de]) = _serde_fn {
                     field_serialization_opt.push(quote! {
                         data.extend_from_slice(
                             #ser(&self.#index).as_ref(),
@@ -428,7 +428,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                         Span::call_site().into(),
                     );
 
-                    if let Some([ser, de]) = serde_fn {
+                    if let Some([ser, de]) = _serde_fn {
                         field_serialization_opt.push(quote! {
                             if let Some(val) = self.#index.as_ref() {
                                 mask |= #unit::#unit_name;
