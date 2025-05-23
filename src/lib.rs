@@ -212,14 +212,13 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     #[cfg(feature = "bytemuck")]
     let unit = Ident::new(&format!("{}Unit", opt_name), Span::call_site().into());
 
+    let mut field_struct_new = Vec::new();
+
     #[cfg(feature = "bytemuck")]
     let mut field_serialization = Vec::new();
 
     #[cfg(feature = "bytemuck")]
     let mut field_deserialization = Vec::new();
-
-    #[cfg(feature = "bytemuck")]
-    let mut field_deserialization_new = Vec::new();
 
     #[cfg(feature = "bytemuck")]
     let mut field_serialization_opt = Vec::new();
@@ -231,6 +230,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     let mut upts = Vec::new();
     let mut mods = Vec::new();
     let mut take = Vec::new();
+    let mut lets = Vec::new();
 
     #[cfg(all(feature = "bytemuck", not(feature = "unchecked")))]
     let unwrap = Ident::new("unwrap", Span::call_site().into());
@@ -254,8 +254,9 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
             {
                 if let Some([ser, de]) = _serde_fn {
                     field_serialization.push(quote! {
+                        let #field_name = self.#field_name;
                         data.extend_from_slice(
-                            #ser(&self.#field_name).as_ref(),
+                            #ser(&#field_name).as_ref(),
                         );
                     });
                     field_deserialization.push(quote! {
@@ -265,17 +266,15 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                     });
                 } else {
                     field_serialization.push(quote! {
-                        data.extend_from_slice(::bytemuck::bytes_of(&self.#field_name));
+                        let #field_name = self.#field_name;
+                        data.extend_from_slice(::bytemuck::bytes_of(&#field_name));
                     });
                     field_deserialization.push(quote! {
                         h = t;
                         t += ::core::mem::size_of::<#field_type>();
-                        let #field_name = *::bytemuck::from_bytes(&bytes[h..t]);
+                        let #field_name = ::bytemuck::pod_read_unaligned(&bytes[h..t]);
                     });
                 }
-                field_deserialization_new.push(quote! {
-                    #field_name
-                });
             }
 
             if *is_skipped {
@@ -287,8 +286,9 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 {
                     if let Some([ser, de]) = _serde_fn {
                         field_serialization_opt.push(quote! {
+                            let #field_name = self.#field_name;
                             data.extend_from_slice(
-                                #ser(&self.#field_name).as_ref(),
+                                #ser(&#field_name).as_ref(),
                             );
                         });
                         field_deserialization_opt.push(quote! {
@@ -298,17 +298,17 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                         });
                     } else {
                         field_serialization_opt.push(quote! {
-                           data.extend_from_slice(::bytemuck::bytes_of(&self.#field_name));
+                            let #field_name = self.#field_name;
+                            data.extend_from_slice(::bytemuck::bytes_of(&#field_name));
                         });
                         field_deserialization_opt.push(quote! {
                             h = t;
                             t += ::core::mem::size_of::<#field_type>();
-                            new.#field_name = *::bytemuck::from_bytes(&bytes[h..t]);
+                            new.#field_name = ::bytemuck::pod_read_unaligned(&bytes[h..t]);
                         });
                     }
                 }
                 fields.push(quote! { pub #field_name: #field_type });
-                take.push(quote! { #field_name: self.#field_name });
             } else {
                 #[cfg(feature = "bytemuck")]
                 if !is_unit {
@@ -322,7 +322,8 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
 
                     if let Some([ser, de]) = _serde_fn {
                         field_serialization_opt.push(quote! {
-                            if let Some(val) = self.#field_name.as_ref() {
+                            let #field_name = self.#field_name;
+                            if let Some(val) = #field_name.as_ref() {
                                 mask |= #unit::#unit_name;
                                 data.extend_from_slice(
                                     #ser(val).as_ref(),
@@ -336,7 +337,8 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                         });
                     } else {
                         field_serialization_opt.push(quote! {
-                            if let Some(val) = self.#field_name.as_ref() {
+                            let #field_name = self.#field_name;
+                            if let Some(val) = #field_name.as_ref() {
                                 mask |= #unit::#unit_name;
                                 data.extend_from_slice(::bytemuck::bytes_of(val));
                             }
@@ -346,7 +348,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                             if mask.contains(#unit::#unit_name) {
                                 h = t;
                                 t += ::core::mem::size_of::<#field_type>();
-                                new.#field_name = Some(*::bytemuck::from_bytes(&bytes[h..t]));
+                                new.#field_name = Some(::bytemuck::pod_read_unaligned(&bytes[h..t]));
                             }
                         });
                     }
@@ -355,9 +357,13 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 upts.push(quote! { if let Some(#field_name) = rhs.#field_name {
                     self.#field_name = #field_name
                 } });
-                mods.push(quote! { self.#field_name.is_some() });
-                take.push(quote! { #field_name: self.#field_name.take() });
+                mods.push(quote! { #field_name.is_some() });
+                take.push(quote! { self.#field_name = None; });
             }
+            field_struct_new.push(quote! {
+                #field_name
+            });
+            lets.push(quote! { let #field_name = self.#field_name; });
         } else {
             let index = Index::from(i);
             let var = Ident::new(&format!("_{}", i), Span::call_site().into());
@@ -366,8 +372,9 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
             {
                 if let Some([ser, de]) = _serde_fn {
                     field_serialization.push(quote! {
+                        let #var = self.#index;
                         data.extend_from_slice(
-                            #ser(&self.#index).as_ref(),
+                            #ser(&#var).as_ref(),
                         );
                     });
                     field_deserialization.push(quote! {
@@ -377,17 +384,15 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                     });
                 } else {
                     field_serialization.push(quote! {
-                        data.extend_from_slice(::bytemuck::bytes_of(&self.#index));
+                        let #var = self.#index;
+                        data.extend_from_slice(::bytemuck::bytes_of(&#var));
                     });
                     field_deserialization.push(quote! {
                         h = t;
                         t += ::core::mem::size_of::<#field_type>();
-                        let #var = *::bytemuck::from_bytes(&bytes[h..t]);
+                        let #var = ::bytemuck::pod_read_unaligned(&bytes[h..t]);
                     });
                 }
-                field_deserialization_new.push(quote! {
-                    #index: #var
-                });
             }
 
             if *is_skipped {
@@ -398,8 +403,9 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 #[cfg(feature = "bytemuck")]
                 if let Some([ser, de]) = _serde_fn {
                     field_serialization_opt.push(quote! {
+                        let #var = self.#index;
                         data.extend_from_slice(
-                            #ser(&self.#index).as_ref(),
+                            #ser(&#var).as_ref(),
                         );
                     });
                     field_deserialization_opt.push(quote! {
@@ -409,17 +415,17 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                     });
                 } else {
                     field_serialization_opt.push(quote! {
-                        data.extend_from_slice(::bytemuck::bytes_of(&self.#index));
+                        let #var = self.#index;
+                        data.extend_from_slice(::bytemuck::bytes_of(&#var));
                     });
 
                     field_deserialization_opt.push(quote! {
                         h = t;
                         t += ::core::mem::size_of::<#field_type>();
-                        new.#index = *::bytemuck::from_bytes(&bytes[h..t]);
+                        new.#index = ::bytemuck::pod_read_unaligned(&bytes[h..t]);
                     });
                 }
                 fields.push(quote! { pub #field_type });
-                take.push(quote! { #index: self.#index });
             } else {
                 #[cfg(feature = "bytemuck")]
                 if !is_unit {
@@ -430,7 +436,8 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
 
                     if let Some([ser, de]) = _serde_fn {
                         field_serialization_opt.push(quote! {
-                            if let Some(val) = self.#index.as_ref() {
+                            let #var = self.#index;
+                            if let Some(val) = #var.as_ref() {
                                 mask |= #unit::#unit_name;
                                 data.extend_from_slice(
                                     #ser(val).as_ref(),
@@ -444,7 +451,8 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                         });
                     } else {
                         field_serialization_opt.push(quote! {
-                            if let Some(val) = self.#index.as_ref() {
+                            let #var = self.#index;
+                            if let Some(val) = #var.as_ref() {
                                 mask |= #unit::#unit_name;
                                 data.extend_from_slice(::bytemuck::bytes_of(val));
                             }
@@ -454,7 +462,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                             if mask.contains(#unit::#unit_name) {
                                 h = t;
                                 t += ::core::mem::size_of::<#field_type>();
-                                new.#index = Some(*::bytemuck::from_bytes(&bytes[h..t]));
+                                new.#index = Some(::bytemuck::pod_read_unaligned(&bytes[h..t]));
                             }
                         });
                     }
@@ -463,9 +471,13 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 upts.push(quote! { if let Some(#var) = rhs.#index {
                     self.#index = #var
                 } });
-                mods.push(quote! { self.#index.is_some() });
-                take.push(quote! { #index: self.#index.take() });
+                mods.push(quote! { #var.is_some() });
+                take.push(quote! { self.#index = None; });
             }
+            field_struct_new.push(quote! {
+                #index: #var
+            });
+            lets.push(quote! { let #var = self.#index; });
         };
     }
 
@@ -480,23 +492,16 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     } else {
         let serde_og = quote! {
             pub fn serialize(&self) -> Vec<u8> {
-                let mut data = Vec::with_capacity(::core::mem::size_of_val(self));
-
+                let mut data = Vec::with_capacity(::core::mem::size_of::<u8>() + ::core::mem::size_of_val(self));
+                data.push(#id_og);
                 #(#field_serialization)*
-
-                let mut payload = Vec::with_capacity(1 + data.len());
-                payload.push(#id_og);
-                payload.extend_from_slice(data.as_slice());
-                payload
+                data
             }
 
             pub fn deserialize(bytes: &[u8]) -> Self {
-                let mut h = 0;
-                let mut t = 0;
-
+                let [mut h, mut t] = [0; 2];
                 #(#field_deserialization)*
-
-                Self { #(#field_deserialization_new),* }
+                Self { #(#field_struct_new),* }
             }
         };
 
@@ -507,7 +512,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
 
                 #(#field_serialization_opt)*
 
-                let mut payload = Vec::with_capacity(1 + ::core::mem::size_of::<#unit>() + data.len());
+                let mut payload = Vec::with_capacity(::core::mem::size_of::<u8>() + ::core::mem::size_of::<#unit>() + data.len());
                 payload.push(#id_opt);
                 payload.extend_from_slice(mask.bits().to_le_bytes().as_slice());
                 payload.extend_from_slice(data.as_slice());
@@ -550,6 +555,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     // generate the new struct
     let structure = if is_named {
         quote! {
+            #[repr(C, packed)]
             #[derive(#(#derives),*)]
             pub struct #opt_name {
                 #(#fields),*
@@ -559,12 +565,13 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
         quote! {}
     } else {
         quote! {
+            #[repr(C, packed)]
             #[derive(#(#derives),*)]
             pub struct #opt_name(#(#fields),*);
         }
     };
 
-    let (impl_name, impl_opt_name) = if upts.is_empty() || is_unit {
+    let (impl_name, impl_name_opt) = if upts.is_empty() || is_unit {
         Default::default()
     } else {
         let patch = quote! {
@@ -575,13 +582,17 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
         };
         let is_modified = quote! {
             pub const fn is_modified(&self) -> bool {
+                #(#lets)*
                 #(#mods)||*
             }
         };
         let take = quote! {
             pub const fn take(&mut self) -> Self {
+                #(#lets)*
+                #(#take)*
+
                 Self {
-                    #(#take),*
+                    #(#field_struct_new),*
                 }
             }
         };
@@ -624,21 +635,21 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     let impl_opt_id = quote! {};
 
     #[cfg(feature = "bytemuck")]
-    let impl_opt_name = quote! {
-        #impl_opt_name
+    let impl_name_opt = quote! {
+        #impl_name_opt
         #serde_opt
     };
-    let impl_opt_name = quote! {
+    let impl_name_opt = quote! {
         impl #opt_name {
             #impl_opt_id
-            #impl_opt_name
+            #impl_name_opt
         }
     };
 
     quote! {
         #structure
         #impl_name
-        #impl_opt_name
+        #impl_name_opt
     }
     .into()
 }

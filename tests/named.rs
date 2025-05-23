@@ -2,7 +2,7 @@ mod common;
 use common::named::*;
 
 #[test]
-fn test_stable() {
+fn test_named_stable() {
     // base is_modified test
     let mut ex_opt = ExampleNamedOpt::default();
     assert!(!ex_opt.is_modified());
@@ -28,13 +28,12 @@ fn test_stable() {
             c: -2048
         }
     );
-
     // optional struct is now zeroed out
     assert_eq!(ex_opt, ExampleNamedOpt::default())
 }
 
 #[test]
-fn test_stable_req() {
+fn test_named_stable_req() {
     // base is_modified test
     let mut ex_opt = ExampleNamedReqOpt::default();
     assert!(!ex_opt.is_modified());
@@ -60,7 +59,6 @@ fn test_stable_req() {
             c: -2048
         }
     );
-
     // optional struct is now zeroed out
     assert_eq!(
         ex_opt,
@@ -74,9 +72,8 @@ fn test_stable_req() {
 
 #[test]
 #[cfg(feature = "bytemuck")]
-fn test_rkyv_serialize() {
+fn test_named_bytemuck_serialize() {
     let ex = ExampleNamed { a: A, b: B, c: C };
-
     let serialized = ex.serialize();
     assert_eq!(
         serialized,
@@ -86,9 +83,8 @@ fn test_rkyv_serialize() {
 
 #[test]
 #[cfg(feature = "bytemuck")]
-fn test_rkyv_serialize_with() {
+fn test_named_bytemuck_serialize_with() {
     let ex = ExampleNamedWith { a: A, b: B, c: C };
-
     let serialized = ex.serialize();
     assert_eq!(
         serialized,
@@ -98,20 +94,20 @@ fn test_rkyv_serialize_with() {
 
 #[test]
 #[cfg(feature = "bytemuck")]
-fn test_rkyv_serialize_opt() {
-    let mut ex_opt = ExampleNamedOpt::default();
-    ex_opt.a = Some(A);
-    ex_opt.c = Some(C);
-
-    let serialized = ex_opt.serialize();
+fn test_named_bytemuck_serialize_opt() {
+    let ex = ExampleNamedOpt {
+        a: Some(A),
+        b: None,
+        c: Some(C),
+    };
+    let serialized = ex.serialize();
     assert_eq!(serialized, [ExampleNamedOpt::ID, 5, 69, 0, 248, 255, 255]);
 }
 
 #[test]
 #[cfg(feature = "bytemuck")]
-fn test_rkyv_serialize_req() {
+fn test_named_bytemuck_serialize_req() {
     let ex = ExampleNamedReq { a: A, b: B, c: C };
-
     let serialized = ex.serialize();
     assert_eq!(
         serialized,
@@ -121,70 +117,65 @@ fn test_rkyv_serialize_req() {
 
 #[test]
 #[cfg(feature = "bytemuck")]
-fn test_rkyv_serialize_req_opt() {
-    let mut ex_opt = ExampleNamedReqOpt::default();
-    ex_opt.a = Some(A);
-    ex_opt.b = B;
-
-    let serialized = ex_opt.serialize();
+fn test_named_bytemuck_serialize_req_opt() {
+    let ex = ExampleNamedReqOpt {
+        a: Some(A),
+        b: B,
+        c: None,
+    };
+    let serialized = ex.serialize();
     assert_eq!(serialized, [ExampleNamedReqOpt::ID, 1, 69, 0, 0, 210, 67]);
 }
 
 #[test]
 #[cfg(feature = "bytemuck")]
-fn test_rkyv_deserialize() {
-    let bytes = [ExampleNamed::ID, 69, 0, 0, 210, 67, 0, 248, 255, 255];
-
+fn test_named_bytemuck_deserialize() {
+    let ex = ExampleNamed { a: A, b: B, c: C };
+    let bytes = ex.serialize();
     let deserialized = ExampleNamed::deserialize(&bytes[1..]);
-    assert_eq!(deserialized, ExampleNamed { a: A, b: B, c: C });
+    assert_eq!(deserialized, ex);
 }
 
 #[test]
 #[cfg(feature = "bytemuck")]
-fn test_rkyv_deserialize_with() {
-    let bytes = [ExampleNamedWith::ID, 69, 0, 0, 210, 67, 0, 248, 255, 255];
-
+fn test_named_bytemuck_deserialize_with() {
+    let ex = ExampleNamedWith { a: A, b: B, c: C };
+    let bytes = ex.serialize();
     let deserialized = ExampleNamedWith::deserialize(&bytes[1..]);
-    assert_eq!(deserialized, ExampleNamedWith { a: A, b: B, c: C });
+    assert_eq!(deserialized, ex);
 }
 
 #[test]
 #[cfg(feature = "bytemuck")]
-fn test_rkyv_deserialize_opt() {
-    let bytes = [ExampleNamedOpt::ID, 5, 69, 0, 248, 255, 255];
-
+fn test_named_bytemuck_deserialize_opt() {
+    let ex = ExampleNamedOpt {
+        a: Some(A),
+        b: None,
+        c: Some(C),
+    };
+    let bytes = ex.serialize();
     let deserialized = ExampleNamedOpt::deserialize(&bytes[1..]);
-    assert_eq!(
-        deserialized,
-        ExampleNamedOpt {
-            a: Some(A),
-            b: None,
-            c: Some(C)
-        }
-    );
+    assert_eq!(deserialized, ex);
 }
 
 #[test]
 #[cfg(feature = "bytemuck")]
-fn test_rkyv_deserialize_req() {
-    let bytes = [ExampleNamedReq::ID, 69, 0, 0, 210, 67, 0, 248, 255, 255];
-
+fn test_named_bytemuck_deserialize_req() {
+    let ex = ExampleNamedReq { a: A, b: B, c: C };
+    let bytes = ex.serialize();
     let deserialized = ExampleNamedReq::deserialize(&bytes[1..]);
-    assert_eq!(deserialized, ExampleNamedReq { a: A, b: B, c: C });
+    assert_eq!(deserialized, ex);
 }
 
 #[test]
 #[cfg(feature = "bytemuck")]
-fn test_rkyv_deserialize_req_opt() {
-    let bytes = [ExampleNamedReqOpt::ID, 1, 69, 0, 0, 210, 67];
-
+fn test_named_bytemuck_deserialize_req_opt() {
+    let ex = ExampleNamedReqOpt {
+        a: Some(A),
+        b: B,
+        c: None,
+    };
+    let bytes = ex.serialize();
     let deserialized = ExampleNamedReqOpt::deserialize(&bytes[1..]);
-    assert_eq!(
-        deserialized,
-        ExampleNamedReqOpt {
-            a: Some(A),
-            b: B,
-            c: None
-        }
-    );
+    assert_eq!(deserialized, ex);
 }
