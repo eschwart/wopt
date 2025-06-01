@@ -254,10 +254,10 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
             {
                 if let Some([ser, de]) = _serde_fn {
                     field_serialization.push(quote! {
+                        h = t;
+                        t += ::core::mem::size_of::<#field_type>();
                         let #field_name = self.#field_name;
-                        data.extend_from_slice(
-                            #ser(&#field_name).as_ref(),
-                        );
+                        data[h..t].copy_from_slice(#ser(&#field_name).as_ref());
                     });
                     field_deserialization.push(quote! {
                         h = t;
@@ -266,8 +266,10 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                     });
                 } else {
                     field_serialization.push(quote! {
+                        h = t;
+                        t += ::core::mem::size_of::<#field_type>();
                         let #field_name = self.#field_name;
-                        data.extend_from_slice(::bytemuck::bytes_of(&#field_name));
+                        data[h..t].copy_from_slice(::bytemuck::bytes_of(&#field_name));
                     });
                     field_deserialization.push(quote! {
                         h = t;
@@ -287,9 +289,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                     if let Some([ser, de]) = _serde_fn {
                         field_serialization_opt.push(quote! {
                             let #field_name = self.#field_name;
-                            data.extend_from_slice(
-                                #ser(&#field_name).as_ref(),
-                            );
+                            data.extend_from_slice(#ser(&#field_name).as_ref());
                         });
                         field_deserialization_opt.push(quote! {
                             h = t;
@@ -325,9 +325,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                             let #field_name = self.#field_name;
                             if let Some(val) = #field_name.as_ref() {
                                 mask |= #unit::#unit_name;
-                                data.extend_from_slice(
-                                    #ser(val).as_ref(),
-                                );
+                                data.extend_from_slice(#ser(val).as_ref());
                             }
                         });
                         field_deserialization_opt.push(quote! {
@@ -372,10 +370,10 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
             {
                 if let Some([ser, de]) = _serde_fn {
                     field_serialization.push(quote! {
+                        h = t;
+                        t += ::core::mem::size_of::<#field_type>();
                         let #var = self.#index;
-                        data.extend_from_slice(
-                            #ser(&#var).as_ref(),
-                        );
+                        data[h..t].copy_from_slice(#ser(&#var).as_ref());
                     });
                     field_deserialization.push(quote! {
                         h = t;
@@ -384,8 +382,10 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                     });
                 } else {
                     field_serialization.push(quote! {
+                        h = t;
+                        t += ::core::mem::size_of::<#field_type>();
                         let #var = self.#index;
-                        data.extend_from_slice(::bytemuck::bytes_of(&#var));
+                        data[h..t].copy_from_slice(::bytemuck::bytes_of(&#var));
                     });
                     field_deserialization.push(quote! {
                         h = t;
@@ -404,9 +404,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 if let Some([ser, de]) = _serde_fn {
                     field_serialization_opt.push(quote! {
                         let #var = self.#index;
-                        data.extend_from_slice(
-                            #ser(&#var).as_ref(),
-                        );
+                        data.extend_from_slice(#ser(&#var).as_ref());
                     });
                     field_deserialization_opt.push(quote! {
                         h = t;
@@ -439,9 +437,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                             let #var = self.#index;
                             if let Some(val) = #var.as_ref() {
                                 mask |= #unit::#unit_name;
-                                data.extend_from_slice(
-                                    #ser(val).as_ref(),
-                                );
+                                data.extend_from_slice(#ser(val).as_ref());
                             }
                         });
                         field_deserialization_opt.push(quote! {
@@ -491,9 +487,13 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
         (serde, quote! {})
     } else {
         let serde_og = quote! {
-            pub fn serialize(&self) -> Vec<u8> {
-                let mut data = Vec::with_capacity(::core::mem::size_of::<u8>() + ::core::mem::size_of_val(self));
-                data.push(#id_og);
+            pub fn serialize(&self) -> [u8; ::core::mem::size_of::<u8>() + ::core::mem::size_of::<Self>()] {
+                let mut data = [0; ::core::mem::size_of::<u8>() + ::core::mem::size_of::<Self>()];
+
+                let mut h = 0;
+                let mut t = ::core::mem::size_of_val(&#id_og);
+
+                data[0] = #id_og;
                 #(#field_serialization)*
                 data
             }
@@ -507,12 +507,15 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
 
         let serde_opt = quote! {
             pub fn serialize(&self) -> Vec<u8> {
-                let mut data = Vec::with_capacity(::core::mem::size_of_val(self));
+                let mut data = Vec::with_capacity(::core::mem::size_of::<Self>());
                 let mut mask = #unit::empty();
+
+                let mut h = 0;
+                let mut t = ::core::mem::size_of::<#unit>();
 
                 #(#field_serialization_opt)*
 
-                let mut payload = Vec::with_capacity(::core::mem::size_of::<u8>() + ::core::mem::size_of::<#unit>() + data.len());
+                let mut payload = Vec::with_capacity(::core::mem::size_of::<u8>() + ::core::mem::size_of::<#unit>() + ::core::mem::size_of::<Self>());
                 payload.push(#id_opt);
                 payload.extend_from_slice(mask.bits().to_le_bytes().as_slice());
                 payload.extend_from_slice(data.as_slice());
@@ -523,7 +526,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 let mut new = Self::default();
 
                 let mut h = 0;
-                let mut t = size_of::<#unit>();
+                let mut t = ::core::mem::size_of::<#unit>();
 
                 let mask_bytes = &bytes[..t];
                 let mask_bits = <#unit as ::bitflags::Flags>::Bits::from_le_bytes(
