@@ -39,11 +39,10 @@ fn main() {
 | `skip` | Does not include the specified field. |
 
 
-## Optional Features
+## Optional Feature(s)
 | Name | Description |
 | ---- | ----------- |
 | [bytemuck](https://crates.io/crates/bitflags) | Serialize/Deserialize using `bytemuck`. |
-| [serde](https://crates.io/crates/serde)   | Seriailze/Deserialize using `serde`. |
 
 
 ## Additional Notes

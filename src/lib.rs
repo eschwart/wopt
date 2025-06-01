@@ -201,7 +201,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     #[cfg(feature = "bytemuck")]
     let id_og = id.expect("Specify the `id` attribute.");
     #[cfg(feature = "bytemuck")]
-    let id_opt = id_og + i8::MAX as u8;
+    let id_opt = id_og + (i8::MAX as u8);
 
     let opt_name = if is_unit {
         name.clone()
