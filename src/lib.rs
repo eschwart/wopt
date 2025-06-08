@@ -389,7 +389,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                             quote! {
                                 h = t;
                                 t += #size_of;
-                                new.#field_name = #field_type::deserialize(&bytes[h..t]);
+                                new.#field_name = #field_type_opt::deserialize(&bytes[h..t]);
                             }
                         } else {
                             quote! {
@@ -446,8 +446,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                             quote! {
                                 if mask.contains(#unit::#unit_name) {
                                     h = t;
-                                    t += #size_of_opt;
-                                    new.#field_name = #field_type_opt::deserialize(&bytes[h..t]);
+                                    new.#field_name = #field_type_opt::deserialize_with(bytes, &mut h, &mut t);
                                 }
                             }
                         } else {
@@ -560,7 +559,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                         quote! {
                             h = t;
                             t += #size_of;
-                            new.#index = #field_type::deserialize(&bytes[h..t]);
+                            new.#index = #field_type_opt::deserialize(&bytes[h..t]);
                         }
                     } else {
                         quote! {
@@ -613,8 +612,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                             quote! {
                                 if mask.contains(#unit::#unit_name) {
                                     h = t;
-                                    t += #size_of_opt;
-                                    new.#index = #field_type_opt::deserialize(&bytes[h..t]);
+                                    new.#index = #field_type_opt::deserialize_with(bytes, &mut h, &mut t)
                                 }
                             }
                         } else {
@@ -689,7 +687,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
         let serde_opt = quote! {
             pub fn serialize(&self) -> Vec<u8> {
                 let mut data = Vec::with_capacity(
-                    1                               +      // identity byte
+                    1                               +   // identity byte
                     ::core::mem::size_of::<#unit>() +   // bitmask data
                     Self::UNPADDED_SIZE                 // field(s) data
                 );
@@ -698,6 +696,19 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 #(#field_serialization_opt)*
                 data.splice(1..1, mask.bits().to_le_bytes());
                 data
+            }
+
+            fn deserialize_with(bytes: &[u8], head: &mut usize, tail: &mut usize) -> Self {
+                let mut h = *head;
+                let mut t = h + ::core::mem::size_of::<#unit>();
+                let mut new = Self::default();
+                let mask_bytes = &bytes[h..t];
+                let mask_bits = <#unit as ::bitflags::Flags>::Bits::from_le_bytes(#try_into);
+                let mask = #unit::from_bits_retain(mask_bits);
+                #(#field_deserialization_opt)*
+                *head = h;
+                *tail = t;
+                new
             }
 
             pub fn deserialize(bytes: &[u8]) -> Self {
