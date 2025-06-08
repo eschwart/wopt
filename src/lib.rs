@@ -698,7 +698,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 data
             }
 
-            fn deserialize_with(bytes: &[u8], head: &mut usize, tail: &mut usize) -> Self {
+            pub fn deserialize_with(bytes: &[u8], head: &mut usize, tail: &mut usize) -> Self {
                 let mut h = *head;
                 let mut t = h + ::core::mem::size_of::<#unit>();
                 let mut new = Self::default();
