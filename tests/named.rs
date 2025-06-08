@@ -3,69 +3,63 @@ use common::named::*;
 
 #[test]
 fn test_named_stable() {
-    // base is_modified test
+    let mut ex = ExampleNamed { a: A, b: B, c: C };
+
     let mut ex_opt = ExampleNamedOpt::default();
     assert!(!ex_opt.is_modified());
 
-    // modify (b, c) of optional struct
-    ex_opt.b = Some(B);
-    ex_opt.c = Some(C);
+    ex_opt.a = Some(1);
     assert!(ex_opt.is_modified());
 
-    // instantiate, then modify (a) of original struct
-    let mut ex = ExampleNamed::default();
-    ex.a = A;
-    ex.patch(&mut ex_opt); // apply patch
-
-    // optional struct should no longer be modified
+    ex.patch(&mut ex_opt);
     assert!(!ex_opt.is_modified());
-    // original struct now contains all test parameters
-    assert_eq!(
-        ex,
-        ExampleNamed {
-            a: 69,
-            b: 420.0,
-            c: -2048
-        }
-    );
-    // optional struct is now zeroed out
-    assert_eq!(ex_opt, ExampleNamedOpt::default())
+
+    assert_eq!(ex, ExampleNamed { a: 1, b: B, c: C })
 }
 
 #[test]
 fn test_named_stable_req() {
-    // base is_modified test
+    let mut ex = ExampleNamedReq { a: A, b: B, c: C };
+
     let mut ex_opt = ExampleNamedReqOpt::default();
     assert!(!ex_opt.is_modified());
 
-    // modify (b, c) of optional struct
-    ex_opt.b = B;
-    ex_opt.c = Some(C);
+    ex_opt.a = Some(1);
+    ex_opt.b = 2.0;
     assert!(ex_opt.is_modified());
 
-    // instantiate, then modify (a) of original struct
-    let mut ex = ExampleNamedReq::default();
-    ex.a = A;
-    ex.patch(&mut ex_opt); // apply patch
-
-    // optional struct should no longer be modified
+    ex.patch(&mut ex_opt);
     assert!(!ex_opt.is_modified());
-    // original struct now contains all test parameters
+    assert_eq!(ex_opt.b, 2.0);
+
+    assert_eq!(ex, ExampleNamedReq { a: 1, b: B, c: C })
+}
+
+#[test]
+#[cfg(feature = "bytemuck")]
+fn test_named_stable_flat() {
+    let mut ex = ExampleNamedFlat {
+        a: A,
+        b: ExampleNamed { a: A, b: B, c: C },
+        c: C,
+    };
+
+    let mut ex_opt = ExampleNamedFlatOpt::default();
+    assert!(!ex_opt.is_modified());
+
+    ex_opt.a = Some(1);
+    ex_opt.b.c = Some(-3);
+    assert!(ex_opt.is_modified());
+
+    ex.patch(&mut ex_opt);
+    assert!(!ex_opt.is_modified());
+
     assert_eq!(
         ex,
-        ExampleNamedReq {
-            a: 69,
-            b: 0.0,
-            c: -2048
-        }
-    );
-    // optional struct is now zeroed out
-    assert_eq!(
-        ex_opt,
-        ExampleNamedReqOpt {
-            a: None,
-            b: 420.0,
-            c: None
+        ExampleNamedFlat {
+            a: 1,
+            b: ExampleNamed { a: A, b: B, c: -3 },
+            c: C
         }
     )
 }
@@ -76,8 +70,8 @@ fn test_named_bytemuck_serialize() {
     let ex = ExampleNamed { a: A, b: B, c: C };
     let serialized = ex.serialize();
     assert_eq!(
+        [ExampleNamed::ID, 69, 0, 0, 210, 67, 0, 248, 255, 255].as_slice(),
         serialized,
-        [ExampleNamed::ID, 69, 0, 0, 210, 67, 0, 248, 255, 255]
     );
 }
 
@@ -87,8 +81,8 @@ fn test_named_bytemuck_serialize_with() {
     let ex = ExampleNamedWith { a: A, b: B, c: C };
     let serialized = ex.serialize();
     assert_eq!(
+        [ExampleNamedWith::ID, 69, 0, 0, 210, 67, 0, 248, 255, 255].as_slice(),
         serialized,
-        [ExampleNamedWith::ID, 69, 0, 0, 210, 67, 0, 248, 255, 255]
     );
 }
 
@@ -101,7 +95,10 @@ fn test_named_bytemuck_serialize_opt() {
         c: Some(C),
     };
     let serialized = ex.serialize();
-    assert_eq!(serialized, [ExampleNamedOpt::ID, 5, 69, 0, 248, 255, 255]);
+    assert_eq!(
+        [ExampleNamedOpt::ID, 5, 69, 0, 248, 255, 255].as_slice(),
+        serialized
+    );
 }
 
 #[test]
@@ -110,8 +107,8 @@ fn test_named_bytemuck_serialize_req() {
     let ex = ExampleNamedReq { a: A, b: B, c: C };
     let serialized = ex.serialize();
     assert_eq!(
+        [ExampleNamedReq::ID, 69, 0, 0, 210, 67, 0, 248, 255, 255].as_slice(),
         serialized,
-        [ExampleNamedReq::ID, 69, 0, 0, 210, 67, 0, 248, 255, 255]
     );
 }
 
@@ -124,7 +121,10 @@ fn test_named_bytemuck_serialize_req_opt() {
         c: None,
     };
     let serialized = ex.serialize();
-    assert_eq!(serialized, [ExampleNamedReqOpt::ID, 1, 69, 0, 0, 210, 67]);
+    assert_eq!(
+        [ExampleNamedReqOpt::ID, 1, 69, 0, 0, 210, 67].as_slice(),
+        serialized
+    );
 }
 
 #[test]
@@ -133,7 +133,7 @@ fn test_named_bytemuck_deserialize() {
     let ex = ExampleNamed { a: A, b: B, c: C };
     let bytes = ex.serialize();
     let deserialized = ExampleNamed::deserialize(&bytes[1..]);
-    assert_eq!(deserialized, ex);
+    assert_eq!(ex, deserialized);
 }
 
 #[test]
@@ -142,7 +142,7 @@ fn test_named_bytemuck_deserialize_with() {
     let ex = ExampleNamedWith { a: A, b: B, c: C };
     let bytes = ex.serialize();
     let deserialized = ExampleNamedWith::deserialize(&bytes[1..]);
-    assert_eq!(deserialized, ex);
+    assert_eq!(ex, deserialized);
 }
 
 #[test]
@@ -155,7 +155,7 @@ fn test_named_bytemuck_deserialize_opt() {
     };
     let bytes = ex.serialize();
     let deserialized = ExampleNamedOpt::deserialize(&bytes[1..]);
-    assert_eq!(deserialized, ex);
+    assert_eq!(ex, deserialized);
 }
 
 #[test]
@@ -164,7 +164,7 @@ fn test_named_bytemuck_deserialize_req() {
     let ex = ExampleNamedReq { a: A, b: B, c: C };
     let bytes = ex.serialize();
     let deserialized = ExampleNamedReq::deserialize(&bytes[1..]);
-    assert_eq!(deserialized, ex);
+    assert_eq!(ex, deserialized);
 }
 
 #[test]
@@ -177,5 +177,105 @@ fn test_named_bytemuck_deserialize_req_opt() {
     };
     let bytes = ex.serialize();
     let deserialized = ExampleNamedReqOpt::deserialize(&bytes[1..]);
-    assert_eq!(deserialized, ex);
+    assert_eq!(ex, deserialized);
+}
+
+#[test]
+#[cfg(feature = "bytemuck")]
+fn test_named_bytemuck_serialize_flat() {
+    let ex = ExampleNamedFlat {
+        a: A,
+        b: ExampleNamed { a: A, b: B, c: C },
+        c: C,
+    };
+    let bytes = ex.serialize();
+    assert_eq!(
+        [
+            ExampleNamedFlat::ID,
+            69,
+            69,
+            0,
+            0,
+            210,
+            67,
+            0,
+            248,
+            255,
+            255,
+            0,
+            248,
+            255,
+            255
+        ]
+        .as_slice(),
+        bytes
+    );
+}
+
+#[test]
+#[cfg(feature = "bytemuck")]
+fn test_named_bytemuck_serialize_flat_opt() {
+    let ex = ExampleNamedFlatOpt {
+        a: Some(A),
+        b: ExampleNamedOpt {
+            a: Some(A),
+            b: Some(B),
+            c: Some(C),
+        },
+        c: Some(C),
+    };
+    let bytes = ex.serialize();
+    assert_eq!(
+        [
+            ExampleNamedFlatOpt::ID,
+            7,
+            69,
+            7,
+            69,
+            0,
+            0,
+            210,
+            67,
+            0,
+            248,
+            255,
+            255,
+            0,
+            248,
+            255,
+            255
+        ]
+        .as_slice(),
+        bytes
+    );
+}
+
+#[test]
+#[cfg(feature = "bytemuck")]
+fn test_named_bytemuck_deserialize_flat() {
+    let ex = ExampleNamedFlat {
+        a: A,
+        b: ExampleNamed { a: A, b: B, c: C },
+        c: C,
+    };
+    let bytes = ex.serialize();
+    let deserialized = ExampleNamedFlat::deserialize(&bytes[1..]);
+    assert_eq!(ex, deserialized);
+}
+
+#[test]
+#[cfg(feature = "bytemuck")]
+fn test_named_bytemuck_deserialize_flat_opt() {
+    let ex = ExampleNamedFlatOpt {
+        a: Some(A),
+        b: ExampleNamedOpt {
+            a: Some(A),
+            b: Some(B),
+            c: Some(C),
+        },
+        c: Some(C),
+    };
+    let bytes = ex.serialize();
+    let deserialized = ExampleNamedFlatOpt::deserialize(&bytes[1..]);
+    assert_eq!(ex, deserialized);
 }

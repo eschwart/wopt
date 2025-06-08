@@ -12,7 +12,6 @@ pub mod named {
     pub use super::params::*;
     use wopt::*;
 
-    #[repr(C, packed)]
     #[derive(Clone, Copy, Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
     #[cfg_attr(feature = "bytemuck", wopt(id = 0))]
@@ -22,7 +21,6 @@ pub mod named {
         pub c: i32,
     }
 
-    #[repr(C, packed)]
     #[derive(Clone, Copy, Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
     #[cfg_attr(feature = "bytemuck", wopt(id = 1))]
@@ -33,13 +31,23 @@ pub mod named {
         pub c: i32,
     }
 
-    #[repr(C, packed)]
     #[derive(Clone, Copy, Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
     #[cfg_attr(feature = "bytemuck", wopt(id = 2))]
     pub struct ExampleNamedWith {
         pub a: u8,
         pub b: f32,
+        pub c: i32,
+    }
+
+    #[cfg(feature = "bytemuck")]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, WithOpt)]
+    #[wopt(derive(Debug, Default, PartialEq))]
+    #[wopt(id = 3)]
+    pub struct ExampleNamedFlat {
+        pub a: u8,
+        #[wopt(optional, serde)]
+        pub b: ExampleNamed,
         pub c: i32,
     }
 }
@@ -49,23 +57,26 @@ pub mod unnamed {
     use bytemuck::{Pod, Zeroable};
     use wopt::*;
 
-    #[repr(C, packed)]
     #[derive(Clone, Copy, Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
     #[cfg_attr(feature = "bytemuck", wopt(id = 0))]
     pub struct ExampleUnnamed(pub u8, pub f32, pub i32);
 
-    #[repr(C, packed)]
     #[derive(Clone, Copy, Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
     #[cfg_attr(feature = "bytemuck", wopt(id = 1))]
     pub struct ExampleUnnamedReq(pub u8, #[wopt(required)] pub f32, pub i32);
 
-    #[repr(C, packed)]
     #[derive(Clone, Copy, Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
     #[cfg_attr(feature = "bytemuck", wopt(id = 2))]
     pub struct ExampleUnnamedWith(pub u8, pub f32, pub i32);
+
+    #[cfg(feature = "bytemuck")]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, WithOpt)]
+    #[wopt(derive(Debug, Default, PartialEq))]
+    #[wopt(id = 3)]
+    pub struct ExampleUnnamedFlat(pub u8, #[wopt(optional, serde)] pub ExampleUnnamed, pub i32);
 }
 
 pub mod unit {
@@ -73,7 +84,6 @@ pub mod unit {
     use wopt::*;
 
     #[cfg(feature = "bytemuck")]
-    #[repr(C, packed)]
     #[derive(Clone, Copy, Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
     #[wopt(id = 0)]
@@ -86,9 +96,7 @@ mod bf {
     pub use super::params::*;
     use wopt::*;
 
-    #[repr(C, packed)]
     #[derive(Clone, Copy, Debug, Default, PartialEq, WithOpt)]
-    #[wopt(derive(Debug, Default, PartialEq))]
     #[wopt(
         bf = "++++[++++>---<]>+.[-->+++<]>-.---.[--->+<]>-.++[->+++<]>++.-[--->+<]>--.++[->++<]>.[-->+++<]>-.+.-----.--[--->+<]>.---------.++++++++.[---->+<]>+++.[-->+++++<]>.[------->++<]>+.--[--->+<]>---.++.-----------.--------.+++++++++++.[->+++<]>+.-[--->+<]>+++++."
     )]
@@ -101,9 +109,7 @@ mod bf {
         pub c: i32,
     }
 
-    #[repr(C, packed)]
     #[derive(Clone, Copy, Debug, Default, PartialEq, WithOpt)]
-    #[wopt(derive(Debug, Default, PartialEq))]
     #[wopt(
         bf = "++++[++++>---<]>+.[-->+++<]>-.---.[--->+<]>-.++[->+++<]>++.-[--->+<]>--.++[->++<]>.[-->+++<]>-.+.-----.--[--->+<]>.---------.++++++++.[---->+<]>+++.[-->+++++<]>.[------->++<]>+.--[--->+<]>---.++.-----------.--------.+++++++++++.[->+++<]>+.-[--->+<]>+++++."
     )]

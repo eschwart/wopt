@@ -1,8 +1,8 @@
 use proc_macro::{Span, TokenStream};
 use quote::quote;
 use syn::{
-    DeriveInput, Field, Fields, Ident, Index, LitStr, Meta, Path, Type, parse_macro_input,
-    punctuated::Iter,
+    DeriveInput, Field, Fields, Ident, Index, LitStr, Meta, Path, PathSegment, Type, TypePath,
+    parse_macro_input, punctuated::Iter,
 };
 
 #[cfg(any(feature = "bf", feature = "bytemuck"))]
@@ -11,21 +11,50 @@ use syn::{Expr, Lit};
 #[cfg(all(not(feature = "bytemuck"), feature = "unchecked"))]
 compile_error!("Feature `unchecked` requires feature `bytemuck`.");
 
+fn get_opt_type(original: &Type) -> Type {
+    if let Type::Path(TypePath { path, .. }) = original {
+        if let Some(last_segment) = path.segments.last() {
+            let orig_ident = &last_segment.ident;
+            let new_ident = Ident::new(
+                format!("{}Opt", orig_ident).as_str(),
+                Span::call_site().into(),
+            );
+
+            // Construct a new path with the modified ident and same arguments
+            let new_segment = PathSegment {
+                ident: new_ident,
+                arguments: last_segment.arguments.clone(),
+            };
+
+            let mut new_path = path.clone();
+            new_path.segments.pop();
+            new_path.segments.push(new_segment);
+
+            return Type::Path(TypePath {
+                qself: None,
+                path: new_path,
+            });
+        }
+    }
+    panic!("Unexpected syn::Type variant.")
+}
+
 struct FieldAttrs<'a> {
     field_name_opt: Option<&'a Option<Ident>>,
     field_type: &'a Type,
+    field_type_opt: Type,
+    is_optional: bool,
     is_required: bool,
     is_skipped: bool,
+    _is_serde: bool,
     _serde_fn: Option<[Path; 2]>,
 }
 
 fn get_field_kvs(fields: Iter<Field>, is_named: bool) -> Vec<FieldAttrs> {
     fields
         .map(|field: &Field| {
-            if field.attrs.len() > 1 {
-                panic!("Only 1 attribute per field is supported.")
-            }
-            let (mut is_required, mut is_skipped) = Default::default();
+            let (mut is_optional, mut is_required, mut is_skipped, mut _is_serde) =
+                Default::default();
             let (mut ser, mut de) = Default::default();
 
             if let Some(attr) = field.attrs.first() {
@@ -33,8 +62,10 @@ fn get_field_kvs(fields: Iter<Field>, is_named: bool) -> Vec<FieldAttrs> {
                     attr.parse_nested_meta(|a| {
                         if let Some(ident) = a.path.get_ident() {
                             match ident.to_string().as_str() {
+                                "optional" => is_optional = true,
                                 "required" => is_required = true,
                                 "skip" => is_skipped = true,
+                                "serde" => _is_serde = true,
                                 "ser" => {
                                     let value = a.value()?;
                                     let s: LitStr = value.parse()?;
@@ -60,19 +91,29 @@ fn get_field_kvs(fields: Iter<Field>, is_named: bool) -> Vec<FieldAttrs> {
                 }
             }
 
-            // check if ser/de is complete, is provided
-            let mut _serde_fn = None;
-            match (ser, de) {
-                (None, None) => (),
-                (Some(ser), Some(de)) => _serde_fn = Some([ser, de]),
+            // determine if optional struct provided
+            let field_type = &field.ty;
+            let field_type_opt = if is_optional {
+                get_opt_type(field_type)
+            } else {
+                field_type.clone()
+            };
+
+            // override if any user-provided definitions
+            let _serde_fn = match (ser, de) {
+                (None, None) => None,
+                (Some(ser), Some(de)) => Some([ser, de]),
                 _ => panic!("Both ser/de need to be implemented."),
-            }
+            };
 
             FieldAttrs {
                 field_name_opt: is_named.then_some(&field.ident),
-                field_type: &field.ty,
+                field_type,
+                field_type_opt,
+                is_optional,
                 is_required,
                 is_skipped,
+                _is_serde,
                 _serde_fn,
             }
         })
@@ -230,7 +271,9 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     let mut upts = Vec::new();
     let mut mods = Vec::new();
     let mut take = Vec::new();
-    let mut lets = Vec::new();
+
+    let mut size = Vec::new();
+    let mut size_opt = Vec::new();
 
     #[cfg(all(feature = "bytemuck", not(feature = "unchecked")))]
     let unwrap = Ident::new("unwrap", Span::call_site().into());
@@ -238,77 +281,127 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     #[cfg(all(feature = "bytemuck", feature = "unchecked"))]
     let unwrap = Ident::new("unwrap_unchecked", Span::call_site().into());
 
+    let mut has_optional = false;
+
     for (
         i,
         FieldAttrs {
             field_name_opt,
             field_type,
+            field_type_opt,
+            is_optional,
             is_required,
             is_skipped,
-            _serde_fn,
+            _is_serde,
+            ref _serde_fn,
         },
-    ) in info.iter().enumerate()
+    ) in info.into_iter().enumerate()
     {
+        let (size_of, size_of_opt) = if _is_serde {
+            (
+                quote! { #field_type::UNPADDED_SIZE },
+                quote! { 1 + #field_type_opt::UNPADDED_SIZE },
+            )
+        } else {
+            (
+                quote! { ::core::mem::size_of::<#field_type>() },
+                quote! { ::core::mem::size_of::<#field_type_opt>() },
+            )
+        };
+
+        if is_optional {
+            has_optional = true
+        }
+
         if let Some(field_name) = field_name_opt.cloned().map(|o| o.unwrap()) {
+            field_struct_new.push(quote! { #field_name });
+
             #[cfg(feature = "bytemuck")]
             {
                 if let Some([ser, de]) = _serde_fn {
                     field_serialization.push(quote! {
-                        h = t;
-                        t += ::core::mem::size_of::<#field_type>();
-                        let #field_name = self.#field_name;
-                        data[h..t].copy_from_slice(#ser(&#field_name).as_ref());
+                        h = t; // PUT THIS AT THE END??
+                        t += #size_of;
+                        data[h..t].copy_from_slice(#ser(&self.#field_name).as_ref());
                     });
                     field_deserialization.push(quote! {
                         h = t;
-                        t += ::core::mem::size_of::<#field_type>();
+                        t += #size_of;
                         let #field_name = #de(&bytes[h..t]);
                     });
                 } else {
-                    field_serialization.push(quote! {
-                        h = t;
-                        t += ::core::mem::size_of::<#field_type>();
-                        let #field_name = self.#field_name;
-                        data[h..t].copy_from_slice(::bytemuck::bytes_of(&#field_name));
+                    field_serialization.push(if _is_serde {
+                        quote! {
+                            h = t;
+                            t += #size_of;
+                            data[h..t].copy_from_slice(&self.#field_name.serialize()[1..]);
+                        }
+                    } else {
+                        quote! {
+                            h = t;
+                            t += #size_of;
+                            data[h..t].copy_from_slice(::bytemuck::bytes_of(&self.#field_name));
+                        }
                     });
-                    field_deserialization.push(quote! {
-                        h = t;
-                        t += ::core::mem::size_of::<#field_type>();
-                        let #field_name = ::bytemuck::pod_read_unaligned(&bytes[h..t]);
+                    field_deserialization.push(if _is_serde {
+                        quote! {
+                            h = t;
+                            t += #size_of;
+                            let #field_name = #field_type::deserialize(&bytes[h..t]);
+                        }
+                    } else {
+                        quote! {
+                            h = t;
+                            t += #size_of;
+                            let #field_name = ::bytemuck::pod_read_unaligned(&bytes[h..t]);
+                        }
                     });
                 }
             }
 
-            if *is_skipped {
+            if is_skipped {
                 continue;
             }
 
-            if *is_required {
+            if is_required {
                 #[cfg(feature = "bytemuck")]
                 {
                     if let Some([ser, de]) = _serde_fn {
                         field_serialization_opt.push(quote! {
-                            let #field_name = self.#field_name;
-                            data.extend_from_slice(#ser(&#field_name).as_ref());
+                            data.extend_from_slice(#ser(&self.#field_name).as_ref());
                         });
                         field_deserialization_opt.push(quote! {
                             h = t;
-                            t += ::core::mem::size_of::<#field_type>();
+                            t += #size_of_opt;
                             new.#field_name = #de(&bytes[h..t]);
                         });
                     } else {
-                        field_serialization_opt.push(quote! {
-                            let #field_name = self.#field_name;
-                            data.extend_from_slice(::bytemuck::bytes_of(&#field_name));
+                        field_serialization_opt.push(if _is_serde {
+                            quote! {
+                                data.extend_from_slice(&self.#field_name.serialize()[1..]);
+                            }
+                        } else {
+                            quote! {
+                                data.extend_from_slice(::bytemuck::bytes_of(&self.#field_name));
+                            }
                         });
-                        field_deserialization_opt.push(quote! {
-                            h = t;
-                            t += ::core::mem::size_of::<#field_type>();
-                            new.#field_name = ::bytemuck::pod_read_unaligned(&bytes[h..t]);
+                        field_deserialization_opt.push(if _is_serde {
+                            quote! {
+                                h = t;
+                                t += #size_of;
+                                new.#field_name = #field_type::deserialize(&bytes[h..t]);
+                            }
+                        } else {
+                            quote! {
+                                h = t;
+                                t += #size_of;
+                                new.#field_name = ::bytemuck::pod_read_unaligned(&bytes[h..t]);
+                            }
                         });
                     }
                 }
-                fields.push(quote! { pub #field_name: #field_type });
+                fields.push(quote! { pub #field_name: #field_type_opt });
+                take.push(quote! { #field_name: self.#field_name });
             } else {
                 #[cfg(feature = "bytemuck")]
                 if !is_unit {
@@ -322,108 +415,163 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
 
                     if let Some([ser, de]) = _serde_fn {
                         field_serialization_opt.push(quote! {
-                            let #field_name = self.#field_name;
-                            if let Some(val) = #field_name.as_ref() {
+                            if let Some(val) = self.#field_name.as_ref() {
                                 mask |= #unit::#unit_name;
                                 data.extend_from_slice(#ser(val).as_ref());
                             }
                         });
                         field_deserialization_opt.push(quote! {
                             h = t;
-                            t += ::core::mem::size_of::<#field_type>();
+                            t += #size_of_opt;
                             new.#field_name = Some(#de(&bytes[h..t]));
                         });
                     } else {
-                        field_serialization_opt.push(quote! {
-                            let #field_name = self.#field_name;
-                            if let Some(val) = #field_name.as_ref() {
-                                mask |= #unit::#unit_name;
-                                data.extend_from_slice(::bytemuck::bytes_of(val));
+                        field_serialization_opt.push(if is_optional {
+                            quote! {
+                                if self.#field_name.is_modified() {
+                                    mask |= #unit::#unit_name;
+                                    data.extend_from_slice(&self.#field_name.serialize()[1..]);
+                                }
+                            }
+                        } else {
+                            quote! {
+                                if let Some(val) = self.#field_name.as_ref() {
+                                    mask |= #unit::#unit_name;
+                                    data.extend_from_slice(::bytemuck::bytes_of(val));
+                                }
                             }
                         });
 
-                        field_deserialization_opt.push(quote! {
-                            if mask.contains(#unit::#unit_name) {
-                                h = t;
-                                t += ::core::mem::size_of::<#field_type>();
-                                new.#field_name = Some(::bytemuck::pod_read_unaligned(&bytes[h..t]));
+                        field_deserialization_opt.push(if is_optional {
+                            quote! {
+                                if mask.contains(#unit::#unit_name) {
+                                    h = t;
+                                    t += #size_of_opt;
+                                    new.#field_name = #field_type_opt::deserialize(&bytes[h..t]);
+                                }
+                            }
+                        } else {
+                            quote! {
+                                if mask.contains(#unit::#unit_name) {
+                                    h = t;
+                                    t += #size_of_opt;
+                                    new.#field_name = Some(::bytemuck::pod_read_unaligned(&bytes[h..t]));
+                                }
                             }
                         });
                     }
                 }
-                fields.push(quote! { pub #field_name: Option<#field_type> });
-                upts.push(quote! { if let Some(#field_name) = rhs.#field_name {
-                    self.#field_name = #field_name
-                } });
-                mods.push(quote! { #field_name.is_some() });
-                take.push(quote! { self.#field_name = None; });
+                fields.push(if is_optional {
+                    quote! { pub #field_name: #field_type_opt }
+                } else {
+                    quote! { pub #field_name: Option<#field_type_opt> }
+                });
+                upts.push(if is_optional {
+                    quote! { if rhs.#field_name.is_modified() {
+                        self.#field_name.patch(&mut rhs.#field_name)
+                    } }
+                } else {
+                    quote! { if let Some(#field_name) = rhs.#field_name {
+                        self.#field_name = #field_name
+                    } }
+                });
+                mods.push(if is_optional {
+                    quote! { self.#field_name.is_modified() }
+                } else {
+                    quote! { self.#field_name.is_some() }
+                });
+                take.push(quote! { #field_name: self.#field_name.take() });
             }
-            field_struct_new.push(quote! {
-                #field_name
-            });
-            lets.push(quote! { let #field_name = self.#field_name; });
         } else {
             let index = Index::from(i);
             let var = Ident::new(&format!("_{}", i), Span::call_site().into());
+
+            field_struct_new.push(quote! { #index: #var });
 
             #[cfg(feature = "bytemuck")]
             {
                 if let Some([ser, de]) = _serde_fn {
                     field_serialization.push(quote! {
                         h = t;
-                        t += ::core::mem::size_of::<#field_type>();
-                        let #var = self.#index;
-                        data[h..t].copy_from_slice(#ser(&#var).as_ref());
+                        t += #size_of;
+                        data[h..t].copy_from_slice(#ser(&self.#index).as_ref());
                     });
                     field_deserialization.push(quote! {
                         h = t;
-                        t += ::core::mem::size_of::<#field_type>();
+                        t += #size_of;
                         let #var = #de(&bytes[h..t]);
                     });
                 } else {
-                    field_serialization.push(quote! {
-                        h = t;
-                        t += ::core::mem::size_of::<#field_type>();
-                        let #var = self.#index;
-                        data[h..t].copy_from_slice(::bytemuck::bytes_of(&#var));
+                    field_serialization.push(if _is_serde {
+                        quote! {
+                            h = t;
+                            t += #size_of;
+                            data[h..t].copy_from_slice(&self.#index.serialize()[1..]);
+                        }
+                    } else {
+                        quote! {
+                            h = t;
+                            t += #size_of;
+                            data[h..t].copy_from_slice(::bytemuck::bytes_of(&self.#index));
+                        }
                     });
-                    field_deserialization.push(quote! {
-                        h = t;
-                        t += ::core::mem::size_of::<#field_type>();
-                        let #var = ::bytemuck::pod_read_unaligned(&bytes[h..t]);
+                    field_deserialization.push(if _is_serde {
+                        quote! {
+                            h = t;
+                            t += #size_of;
+                            let #var = #field_type::deserialize(&bytes[h..t]);
+                        }
+                    } else {
+                        quote! {
+                            h = t;
+                            t += #size_of;
+                            let #var = ::bytemuck::pod_read_unaligned(&bytes[h..t]);
+                        }
                     });
                 }
             }
 
-            if *is_skipped {
+            if is_skipped {
                 continue;
             }
 
-            if *is_required {
+            if is_required {
                 #[cfg(feature = "bytemuck")]
                 if let Some([ser, de]) = _serde_fn {
                     field_serialization_opt.push(quote! {
-                        let #var = self.#index;
-                        data.extend_from_slice(#ser(&#var).as_ref());
+                        data.extend_from_slice(#ser(&self.#index).as_ref());
                     });
                     field_deserialization_opt.push(quote! {
                         h = t;
-                        t += ::core::mem::size_of::<#field_type>();
+                        t += #size_of_opt;
                         new.#index = #de(&bytes[h..t]);
                     });
                 } else {
-                    field_serialization_opt.push(quote! {
-                        let #var = self.#index;
-                        data.extend_from_slice(::bytemuck::bytes_of(&#var));
+                    field_serialization_opt.push(if _is_serde {
+                        quote! {
+                            data.extend_from_slice(&self.#index.serialize()[1..]);
+                        }
+                    } else {
+                        quote! {
+                            data.extend_from_slice(::bytemuck::bytes_of(&self.#index));
+                        }
                     });
-
-                    field_deserialization_opt.push(quote! {
-                        h = t;
-                        t += ::core::mem::size_of::<#field_type>();
-                        new.#index = ::bytemuck::pod_read_unaligned(&bytes[h..t]);
+                    field_deserialization_opt.push(if _is_serde {
+                        quote! {
+                            h = t;
+                            t += #size_of;
+                            new.#index = #field_type::deserialize(&bytes[h..t]);
+                        }
+                    } else {
+                        quote! {
+                            h = t;
+                            t += #size_of;
+                            new.#index = ::bytemuck::pod_read_unaligned(&bytes[h..t]);
+                        }
                     });
                 }
-                fields.push(quote! { pub #field_type });
+                fields.push(quote! { pub #field_type_opt });
+                take.push(quote! { #index: self.#index });
             } else {
                 #[cfg(feature = "bytemuck")]
                 if !is_unit {
@@ -434,47 +582,77 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
 
                     if let Some([ser, de]) = _serde_fn {
                         field_serialization_opt.push(quote! {
-                            let #var = self.#index;
-                            if let Some(val) = #var.as_ref() {
+                            if let Some(val) = self.#index.as_ref() {
                                 mask |= #unit::#unit_name;
                                 data.extend_from_slice(#ser(val).as_ref());
                             }
                         });
                         field_deserialization_opt.push(quote! {
                             h = t;
-                            t += ::core::mem::size_of::<#field_type>();
+                            t += #size_of_opt;
                             new.#index = Some(#de(&bytes[h..t]));
                         });
                     } else {
-                        field_serialization_opt.push(quote! {
-                            let #var = self.#index;
-                            if let Some(val) = #var.as_ref() {
-                                mask |= #unit::#unit_name;
-                                data.extend_from_slice(::bytemuck::bytes_of(val));
+                        field_serialization_opt.push(if is_optional {
+                            quote! {
+                                if self.#index.is_modified() {
+                                    mask |= #unit::#unit_name;
+                                    data.extend_from_slice(&self.#index.serialize()[1..]);
+                                }
+                            }
+                        } else {
+                            quote! {
+                                if let Some(val) = self.#index.as_ref() {
+                                    mask |= #unit::#unit_name;
+                                    data.extend_from_slice(::bytemuck::bytes_of(val));
+                                }
                             }
                         });
 
-                        field_deserialization_opt.push(quote! {
-                            if mask.contains(#unit::#unit_name) {
-                                h = t;
-                                t += ::core::mem::size_of::<#field_type>();
-                                new.#index = Some(::bytemuck::pod_read_unaligned(&bytes[h..t]));
+                        field_deserialization_opt.push(if is_optional {
+                            quote! {
+                                if mask.contains(#unit::#unit_name) {
+                                    h = t;
+                                    t += #size_of_opt;
+                                    new.#index = #field_type_opt::deserialize(&bytes[h..t]);
+                                }
+                            }
+                        } else {
+                            quote! {
+                                if mask.contains(#unit::#unit_name) {
+                                    h = t;
+                                    t += #size_of_opt;
+                                    new.#index = Some(::bytemuck::pod_read_unaligned(&bytes[h..t]));
+                                }
                             }
                         });
                     }
                 }
-                fields.push(quote! { pub Option<#field_type> });
-                upts.push(quote! { if let Some(#var) = rhs.#index {
-                    self.#index = #var
-                } });
-                mods.push(quote! { #var.is_some() });
-                take.push(quote! { self.#index = None; });
+                fields.push(if is_optional {
+                    quote! { pub #field_type_opt }
+                } else {
+                    quote! { pub Option<#field_type_opt> }
+                });
+
+                upts.push(if is_optional {
+                    quote! { if rhs.#index.is_modified() {
+                        self.#index.patch(&mut rhs.#index)
+                    } }
+                } else {
+                    quote! { if let Some(#var) = rhs.#index {
+                        self.#index = #var
+                    } }
+                });
+                mods.push(if is_optional {
+                    quote! { self.#index.is_modified() }
+                } else {
+                    quote! { self.#index.is_some() }
+                });
+                take.push(quote! { #index: self.#index.take() });
             }
-            field_struct_new.push(quote! {
-                #index: #var
-            });
-            lets.push(quote! { let #var = self.#index; });
         };
+        size.push(size_of);
+        size_opt.push(size_of_opt);
     }
 
     #[cfg(feature = "bytemuck")]
@@ -487,12 +665,9 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
         (serde, quote! {})
     } else {
         let serde_og = quote! {
-            pub fn serialize(&self) -> [u8; ::core::mem::size_of::<u8>() + ::core::mem::size_of::<Self>()] {
-                let mut data = [0; ::core::mem::size_of::<u8>() + ::core::mem::size_of::<Self>()];
-
-                let mut h = 0;
-                let mut t = ::core::mem::size_of_val(&#id_og);
-
+            pub fn serialize(&self) -> [u8; 1 + Self::UNPADDED_SIZE] {
+                let mut data = [0; 1 + Self::UNPADDED_SIZE];
+                let [mut h, mut t] = [0, ::core::mem::size_of_val(&#id_og)];
                 data[0] = #id_og;
                 #(#field_serialization)*
                 data
@@ -505,33 +680,31 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
             }
         };
 
+        let try_into = quote! { mask_bytes.try_into().#unwrap() };
+        #[cfg(feature = "unchecked")]
+        let try_into = quote! {
+            unsafe { #try_into }
+        };
+
         let serde_opt = quote! {
             pub fn serialize(&self) -> Vec<u8> {
-                let mut data = Vec::with_capacity(::core::mem::size_of::<Self>());
+                let mut data = Vec::with_capacity(
+                    1                               +      // identity byte
+                    ::core::mem::size_of::<#unit>() +   // bitmask data
+                    Self::UNPADDED_SIZE                 // field(s) data
+                );
+                data.push(#id_opt);
                 let mut mask = #unit::empty();
-
-                let mut h = 0;
-                let mut t = ::core::mem::size_of::<#unit>();
-
                 #(#field_serialization_opt)*
-
-                let mut payload = Vec::with_capacity(::core::mem::size_of::<u8>() + ::core::mem::size_of::<#unit>() + ::core::mem::size_of::<Self>());
-                payload.push(#id_opt);
-                payload.extend_from_slice(mask.bits().to_le_bytes().as_slice());
-                payload.extend_from_slice(data.as_slice());
-                payload
+                data.splice(1..1, mask.bits().to_le_bytes());
+                data
             }
 
             pub fn deserialize(bytes: &[u8]) -> Self {
                 let mut new = Self::default();
-
-                let mut h = 0;
-                let mut t = ::core::mem::size_of::<#unit>();
-
+                let [mut h, mut t] = [0, ::core::mem::size_of::<#unit>()];
                 let mask_bytes = &bytes[..t];
-                let mask_bits = <#unit as ::bitflags::Flags>::Bits::from_le_bytes(
-                    unsafe { mask_bytes.try_into().#unwrap() }
-                );
+                let mask_bits = <#unit as ::bitflags::Flags>::Bits::from_le_bytes(#try_into);
                 let mask = #unit::from_bits_retain(mask_bits);
                 #(#field_deserialization_opt)*
                 new
@@ -558,7 +731,6 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     // generate the new struct
     let structure = if is_named {
         quote! {
-            #[repr(C, packed)]
             #[derive(#(#derives),*)]
             pub struct #opt_name {
                 #(#fields),*
@@ -568,7 +740,6 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
         quote! {}
     } else {
         quote! {
-            #[repr(C, packed)]
             #[derive(#(#derives),*)]
             pub struct #opt_name(#(#fields),*);
         }
@@ -577,33 +748,30 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     let (impl_name, impl_name_opt) = if upts.is_empty() || is_unit {
         Default::default()
     } else {
+        let let_stmt = if has_optional {
+            quote! { let mut rhs = rhs.take(); }
+        } else {
+            quote! { let rhs = rhs.take(); }
+        };
+
         let patch = quote! {
             pub fn patch(&mut self, rhs: &mut #opt_name) {
-                let rhs = rhs.take();
+                #let_stmt
                 #(#upts)*
             }
         };
         let is_modified = quote! {
             pub const fn is_modified(&self) -> bool {
-                #(#lets)*
                 #(#mods)||*
             }
         };
         let take = quote! {
             pub const fn take(&mut self) -> Self {
-                #(#lets)*
-                #(#take)*
-
-                Self {
-                    #(#field_struct_new),*
-                }
+                Self { #(#take),* }
             }
         };
-
         (
-            quote! {
-                #patch
-            },
+            quote! { #patch },
             quote! {
                 #is_modified
                 #take
@@ -620,6 +788,8 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
 
     #[cfg(feature = "bytemuck")]
     let impl_name = quote! {
+        pub const UNPADDED_SIZE: usize = #(#size)+*;
+
         #impl_name
         #serde_og
     };
@@ -639,6 +809,8 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
 
     #[cfg(feature = "bytemuck")]
     let impl_name_opt = quote! {
+        pub const UNPADDED_SIZE: usize = #(#size)+*;
+
         #impl_name_opt
         #serde_opt
     };
