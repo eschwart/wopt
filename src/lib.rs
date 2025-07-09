@@ -16,7 +16,7 @@ fn get_opt_type(original: &Type) -> Type {
         if let Some(last_segment) = path.segments.last() {
             let orig_ident = &last_segment.ident;
             let new_ident = Ident::new(
-                format!("{}Opt", orig_ident).as_str(),
+                format!("{orig_ident}Opt").as_str(),
                 Span::call_site().into(),
             );
 
@@ -78,7 +78,7 @@ fn get_field_kvs(fields: Iter<Field>, is_named: bool) -> Vec<FieldAttrs> {
                                     let p = syn::parse_str::<Path>(s.value().as_str())?;
                                     de = Some(p)
                                 }
-                                attr => panic!("Unsupported attribute ({}).", attr),
+                                attr => panic!("Unsupported attribute ({attr})."),
                             }
                         }
                         Ok(())
@@ -161,83 +161,95 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
         panic!("Only structs are supported");
     };
 
+    if info.is_empty() && !is_unit {
+        panic!("Must have at least 1 field.")
+    }
+
+    let mut derives = Vec::new();
+    let mut _no_serde = false;
+
     // process any `#[wopt(...)]` attributes
-    let derives = {
-        let mut derives = Vec::new();
+    for attr in &input.attrs {
+        if attr.path().is_ident("wopt") {
+            let meta = attr.parse_args::<Meta>().unwrap();
 
-        for attr in &input.attrs {
-            if attr.path().is_ident("wopt") {
-                let meta = attr.parse_args::<Meta>().unwrap();
-
-                match &meta {
-                    Meta::List(list) => {
-                        list.parse_nested_meta(|a| {
-                            if let Some(ident) = a.path.get_ident() {
-                                derives.push(quote! { #ident });
-                            }
-                            Ok(())
-                        })
-                        .unwrap();
+            match &meta {
+                Meta::Path(path) => {
+                    if !path.is_ident("no_serde") {
+                        panic!("Only 'no_serde' path meta is supported.")
                     }
-                    Meta::NameValue(nv) => {
-                        if nv.path.is_ident("id") {
-                            #[cfg(not(feature = "bytemuck"))]
-                            panic!("Enable the `bytemuck` feature to use the `id` attribute.");
+                    _no_serde = true
+                }
 
-                            #[cfg(feature = "bytemuck")]
-                            {
-                                id = Some(match &nv.value {
-                                    Expr::Lit(expr) => match &expr.lit {
-                                        Lit::Int(v) => {
-                                            let value = v
-                                                .base10_parse::<u8>()
-                                                .expect("Only `u8` is supported.");
-                                            if value > 127 {
-                                                panic!("Value too large (max: 127)")
-                                            }
-                                            value
+                Meta::List(list) => {
+                    if !list.path.is_ident("derive") {
+                        panic!("Only 'derive' list meta is supported.")
+                    }
+
+                    list.parse_nested_meta(|a| {
+                        if let Some(ident) = a.path.get_ident() {
+                            derives.push(quote! { #ident });
+                        }
+                        Ok(())
+                    })
+                    .unwrap();
+                }
+                Meta::NameValue(nv) => {
+                    if nv.path.is_ident("id") {
+                        #[cfg(not(feature = "bytemuck"))]
+                        panic!("Enable the `bytemuck` feature to use the `id` attribute.");
+
+                        #[cfg(feature = "bytemuck")]
+                        {
+                            id = Some(match &nv.value {
+                                Expr::Lit(expr) => match &expr.lit {
+                                    Lit::Int(v) => {
+                                        let value = v
+                                            .base10_parse::<u8>()
+                                            .expect("Only `u8` is supported.");
+                                        if value > 127 {
+                                            panic!("Value too large (max: 127)")
                                         }
-                                        _ => panic!("Expected integer literal."),
-                                    },
-                                    _ => panic!("Expected literal expression."),
-                                });
-                                continue;
-                            }
+                                        value
+                                    }
+                                    _ => panic!("Expected integer literal."),
+                                },
+                                _ => panic!("Expected literal expression."),
+                            });
+                            continue;
                         }
-                        if nv.path.is_ident("bf") {
-                            #[cfg(not(feature = "bf"))]
-                            panic!("Enable the `bf` feature to use brainfuck.");
-
-                            #[cfg(feature = "bf")]
-                            {
-                                let code = match &nv.value {
-                                    Expr::Lit(expr) => match &expr.lit {
-                                        Lit::Str(s) => s.value(),
-                                        _ => panic!("Expected string literal."),
-                                    },
-                                    _ => panic!("Expected literal expression."),
-                                };
-
-                                let s = bf2s::bf_to_str(&code);
-                                derives.extend(s.split_whitespace().map(|p| {
-                                    let p = Ident::new(p, Span::call_site().into());
-                                    quote! { #p }
-                                }));
-                                continue;
-                            }
-                        }
-                        panic!("Unsupported attribute.")
                     }
-                    _ => (),
+                    if nv.path.is_ident("bf") {
+                        #[cfg(not(feature = "bf"))]
+                        panic!("Enable the `bf` feature to use brainfuck.");
+
+                        #[cfg(feature = "bf")]
+                        {
+                            let code = match &nv.value {
+                                Expr::Lit(expr) => match &expr.lit {
+                                    Lit::Str(s) => s.value(),
+                                    _ => panic!("Expected string literal."),
+                                },
+                                _ => panic!("Expected literal expression."),
+                            };
+
+                            let s = bf2s::bf_to_str(&code);
+                            derives.extend(s.split_whitespace().map(|p| {
+                                let p = Ident::new(p, Span::call_site().into());
+                                quote! { #p }
+                            }));
+                            continue;
+                        }
+                    }
+                    panic!("Unsupported attribute.")
                 }
             }
         }
-        #[cfg(feature = "bytemuck")]
-        if !is_unit {
-            derives.extend([quote! { ::enum_unit::EnumUnit }]);
-        }
-        derives
-    };
+    }
+    #[cfg(feature = "bytemuck")]
+    if !is_unit {
+        derives.extend([quote! { ::enum_unit::EnumUnit }]);
+    }
 
     #[cfg(feature = "bytemuck")]
     let id_og = id.expect("Specify the `id` attribute.");
@@ -247,11 +259,11 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     let opt_name = if is_unit {
         name.clone()
     } else {
-        Ident::new(&format!("{}Opt", name), name.span())
+        Ident::new(&format!("{name}Opt"), name.span())
     };
 
     #[cfg(feature = "bytemuck")]
-    let unit = Ident::new(&format!("{}Unit", opt_name), Span::call_site().into());
+    let unit = Ident::new(&format!("{opt_name}Unit"), Span::call_site().into());
 
     let mut field_struct_new = Vec::new();
 
@@ -271,6 +283,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     let mut upts = Vec::new();
     let mut mods = Vec::new();
     let mut take = Vec::new();
+    let mut into = Vec::new();
 
     let mut size = Vec::new();
     let mut size_opt = Vec::new();
@@ -402,6 +415,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 }
                 fields.push(quote! { pub #field_name: #field_type_opt });
                 take.push(quote! { #field_name: self.#field_name });
+                into.push(quote! { #field_name: self.#field_name });
             } else {
                 #[cfg(feature = "bytemuck")]
                 if !is_unit {
@@ -480,10 +494,15 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                     quote! { self.#field_name.is_some() }
                 });
                 take.push(quote! { #field_name: self.#field_name.take() });
+                into.push(if is_optional {
+                    quote! { #field_name: self.#field_name.into_opt() }
+                } else {
+                    quote! { #field_name: Some(self.#field_name) }
+                });
             }
         } else {
             let index = Index::from(i);
-            let var = Ident::new(&format!("_{}", i), Span::call_site().into());
+            let var = Ident::new(&format!("_{i}"), Span::call_site().into());
 
             field_struct_new.push(quote! { #index: #var });
 
@@ -571,6 +590,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 }
                 fields.push(quote! { pub #field_type_opt });
                 take.push(quote! { #index: self.#index });
+                into.push(quote! { #index: self.#index });
             } else {
                 #[cfg(feature = "bytemuck")]
                 if !is_unit {
@@ -647,6 +667,12 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                     quote! { self.#index.is_some() }
                 });
                 take.push(quote! { #index: self.#index.take() });
+
+                into.push(if is_optional {
+                    quote! { #index: self.#index.into_opt() }
+                } else {
+                    quote! { #index: Some(self.#index) }
+                });
             }
         };
         size.push(size_of);
@@ -662,19 +688,23 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
         };
         (serde, quote! {})
     } else {
-        let serde_og = quote! {
-            pub fn serialize(&self) -> [u8; 1 + Self::UNPADDED_SIZE] {
-                let mut data = [0; 1 + Self::UNPADDED_SIZE];
-                let [mut h, mut t] = [0, ::core::mem::size_of_val(&#id_og)];
-                data[0] = #id_og;
-                #(#field_serialization)*
-                data
-            }
+        let serde_og = if _no_serde {
+            quote! {}
+        } else {
+            quote! {
+                pub fn serialize(&self) -> [u8; 1 + Self::UNPADDED_SIZE] {
+                    let mut data = [0; 1 + Self::UNPADDED_SIZE];
+                    let [mut h, mut t] = [0, ::core::mem::size_of_val(&#id_og)];
+                    data[0] = #id_og;
+                    #(#field_serialization)*
+                    data
+                }
 
-            pub fn deserialize(bytes: &[u8]) -> Self {
-                let [mut h, mut t] = [0; 2];
-                #(#field_deserialization)*
-                Self { #(#field_struct_new),* }
+                pub fn deserialize(bytes: &[u8]) -> Self {
+                    let [mut h, mut t] = [0; 2];
+                    #(#field_deserialization)*
+                    Self { #(#field_struct_new),* }
+                }
             }
         };
 
@@ -764,11 +794,15 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
         } else {
             quote! { let rhs = rhs.take(); }
         };
-
         let patch = quote! {
             pub fn patch(&mut self, rhs: &mut #opt_name) {
                 #let_stmt
                 #(#upts)*
+            }
+        };
+        let into_opt = quote! {
+            pub const fn into_opt(self) -> #opt_name {
+                #opt_name { #(#into),* }
             }
         };
         let is_modified = quote! {
@@ -782,7 +816,10 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
             }
         };
         (
-            quote! { #patch },
+            quote! {
+                #patch
+                #into_opt
+            },
             quote! {
                 #is_modified
                 #take

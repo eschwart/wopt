@@ -50,6 +50,12 @@ fn main() {
 }
 ```
 
+## Struct Attributes
+| Name | Description |
+| ---- | ----------- |
+| `derive(...)` | Specified derivations for the optional struct. |
+| `no_serde` | When provided, does not generate ser/de methods for original struct. |
+
 ## Field Attributes
 For more information on how to use these attributes, refer to the structures in `tests\common\mod.rs`.
 | Name | Description |

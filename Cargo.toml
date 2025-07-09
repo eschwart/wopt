@@ -1,6 +1,6 @@
 [package]
 name = "wopt"
-version = "0.3.9"
+version = "0.4.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/splurf/wopt"
@@ -12,22 +12,22 @@ exclude = [".github/", ".gitignore", "LICENSE", "tests/"]
 [lib]
 proc-macro = true
 
+[features]
+bf = ["dep:bf2s"]
+bytemuck = ["dep:enum-unit", "dep:enum-unit-core"]
+unchecked = []
+
 [dependencies]
 bf2s = { version = "0.1.0", optional = true }
 convert_case = "0.8.0"
 enum-unit = { version = "0.2.3", features = ["bitflags"], optional = true }
 enum-unit-core = { version = "0.1.1", optional = true }
 quote = "1.0.40"
-syn = { version = "2.0.101", features = ["derive", "parsing", "proc-macro"] }
+syn = { version = "2.0.104", features = ["derive", "parsing", "proc-macro"] }
 
 [dev-dependencies]
 bitflags = "2.9.1"
 bytemuck = "1.23.1"
-
-[features]
-bf = ["dep:bf2s"]
-bytemuck = ["dep:enum-unit", "dep:enum-unit-core"]
-unchecked = []
 
 [profile.release]
 lto = true
