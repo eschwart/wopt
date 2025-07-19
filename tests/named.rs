@@ -279,3 +279,74 @@ fn test_named_bytemuck_deserialize_flat_opt() {
     let deserialized = ExampleNamedFlatOpt::deserialize(&bytes[1..]);
     assert_eq!(ex, deserialized);
 }
+
+#[test]
+#[cfg(feature = "bytemuck")]
+fn test_named_bytemuck_serialize_vec() {
+    let ex = ExampleNamedVec {
+        a: A,
+        b: vec![1, 2, 3, 4],
+        c: C,
+    };
+    let bytes = ex.serialize();
+    assert_eq!(
+        [ExampleNamedVec::ID, 69, 4, 0, 1, 2, 3, 4, 0, 248, 255, 255].as_slice(),
+        bytes
+    );
+}
+
+#[test]
+#[cfg(feature = "bytemuck")]
+fn test_named_bytemuck_deserialize_vec() {
+    let ex = ExampleNamedVec {
+        a: A,
+        b: vec![1, 2, 3, 4],
+        c: C,
+    };
+    let bytes = ex.serialize();
+    let deserialized = ExampleNamedVec::deserialize(&bytes[1..]);
+    assert_eq!(ex, deserialized);
+}
+
+#[test]
+#[cfg(feature = "bytemuck")]
+fn test_named_bytemuck_serialize_vec_opt() {
+    let ex = ExampleNamedVecOpt {
+        a: Some(A),
+        b: Some(vec![1, 2, 3, 4]),
+        c: Some(C),
+    };
+    let bytes = ex.serialize();
+    assert_eq!(
+        [
+            ExampleNamedVecOpt::ID,
+            ExampleNamedVecOptUnit::all().bits(),
+            69,
+            4,
+            0,
+            1,
+            2,
+            3,
+            4,
+            0,
+            248,
+            255,
+            255
+        ]
+        .as_slice(),
+        bytes
+    );
+}
+
+#[test]
+#[cfg(feature = "bytemuck")]
+fn test_named_bytemuck_deserialize_vec_opt() {
+    let ex = ExampleNamedVecOpt {
+        a: Some(A),
+        b: Some(vec![1, 2, 3, 4]),
+        c: Some(C),
+    };
+    let bytes = ex.serialize();
+    let deserialized = ExampleNamedVecOpt::deserialize(&bytes[1..]);
+    assert_eq!(ex, deserialized);
+}

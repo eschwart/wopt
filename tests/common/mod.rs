@@ -8,6 +8,16 @@ mod params {
     pub const C: i32 = -2048;
 }
 
+mod util {
+    pub const fn ser(data: &Vec<u8>) -> &[u8] {
+        data.as_slice()
+    }
+
+    pub fn de(data: &[u8]) -> Vec<u8> {
+        data.to_vec()
+    }
+}
+
 pub mod named {
     pub use super::params::*;
     use wopt::*;
@@ -50,6 +60,17 @@ pub mod named {
         pub b: ExampleNamed,
         pub c: i32,
     }
+
+    #[cfg(feature = "bytemuck")]
+    #[derive(Clone, Debug, Default, PartialEq, WithOpt)]
+    #[wopt(derive(Debug, Default, PartialEq))]
+    #[wopt(id = 3)]
+    pub struct ExampleNamedVec {
+        pub a: u8,
+        #[wopt(ser = "super::util::ser", de = "super::util::de")]
+        pub b: Vec<u8>,
+        pub c: i32,
+    }
 }
 
 pub mod unnamed {
@@ -77,6 +98,16 @@ pub mod unnamed {
     #[wopt(derive(Debug, Default, PartialEq))]
     #[wopt(id = 3)]
     pub struct ExampleUnnamedFlat(pub u8, #[wopt(optional, serde)] pub ExampleUnnamed, pub i32);
+
+    #[cfg(feature = "bytemuck")]
+    #[derive(Clone, Debug, Default, PartialEq, WithOpt)]
+    #[wopt(derive(Debug, Default, PartialEq))]
+    #[wopt(id = 3)]
+    pub struct ExampleUnnamedVec(
+        pub u8,
+        #[wopt(ser = "super::util::ser", de = "super::util::de")] pub Vec<u8>,
+        pub i32,
+    );
 }
 
 pub mod unit {
