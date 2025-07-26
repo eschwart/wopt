@@ -4,9 +4,9 @@ version = 4
 
 [[package]]
 name = "bf2s"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55492cc0410af45fa6030a3f4516d28166e17f52c1f50dc3185627f5e56a9316"
+checksum = "34648b707c72ca04d95eee84a39f4d0e44e7235206a1edc77f727feea81100dc"
 
 [[package]]
 name = "bitflags"
@@ -34,9 +34,9 @@ dependencies = [
 
 [[package]]
 name = "enum-unit"
-version = "0.2.3"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a285b05931f57dd49c46fc5eff55d9cc50b954269a128fc53609579192317ee"
+checksum = "d30d7303d6775482cd762c451bd5e5808cfadb4a58570fa49a164d58f38df8b1"
 dependencies = [
  "bitflags",
  "convert_case",
@@ -47,9 +47,9 @@ dependencies = [
 
 [[package]]
 name = "enum-unit-core"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21db30833f557158437783e6d8ad0ba316107484eddd5f2523482917409457b1"
+checksum = "90966616396e024ee6d803bf70edec498c18e352ee14571b9fb4c116a17e34de"
 
 [[package]]
 name = "proc-macro2"
@@ -114,7 +114,7 @@ checksum = "f6ccf251212114b54433ec949fd6a7841275f9ada20dddd2f29e9ceea4501493"
 
 [[package]]
 name = "wopt"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "bf2s",
  "bitflags",
