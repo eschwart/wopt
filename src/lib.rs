@@ -1,3 +1,5 @@
+#![allow(unused_variables)]
+
 use proc_macro::{Span, TokenStream};
 use quote::quote;
 use syn::{
@@ -39,10 +41,11 @@ fn get_opt_type(original: &Type) -> Type {
     panic!("Unexpected syn::Type variant.")
 }
 
-struct FieldAttrs<'a> {
+struct FieldAttr<'a> {
     field_name_opt: Option<&'a Option<Ident>>,
     field_type: &'a Type,
     field_type_opt: Type,
+    is_vec: bool,
     is_optional: bool,
     is_required: bool,
     is_skipped: bool,
@@ -50,18 +53,34 @@ struct FieldAttrs<'a> {
     _serde_fn: Option<[Path; 2]>,
 }
 
-fn get_field_kvs(fields: Iter<Field>, is_named: bool) -> Vec<FieldAttrs> {
-    fields
+struct FieldAttrs<'a> {
+    attrs: Vec<FieldAttr<'a>>,
+    is_const: bool,
+}
+
+fn get_field_kvs(fields: Iter<Field>, is_named: bool) -> FieldAttrs {
+    let mut is_const = true;
+
+    let attrs = fields
         .map(|field: &Field| {
-            let (mut is_optional, mut is_required, mut is_skipped, mut _is_serde) =
+            let (mut is_vec, mut is_optional, mut is_required, mut is_skipped, mut _is_serde) =
                 Default::default();
             let (mut ser, mut de) = Default::default();
+
+            // check for non-constant field (e.g., 'Vec')
+            if let Type::Path(path) = &field.ty {
+                if path.path.segments.last().unwrap().ident == "Vec" {
+                    is_vec = true;
+                    is_const = false;
+                }
+            }
 
             if let Some(attr) = field.attrs.first() {
                 if attr.path().is_ident("wopt") {
                     attr.parse_nested_meta(|a| {
                         if let Some(ident) = a.path.get_ident() {
                             match ident.to_string().as_str() {
+                                "non_const" => is_const = false,
                                 "optional" => is_optional = true,
                                 "required" => is_required = true,
                                 "skip" => is_skipped = true,
@@ -106,10 +125,11 @@ fn get_field_kvs(fields: Iter<Field>, is_named: bool) -> Vec<FieldAttrs> {
                 _ => panic!("Both ser/de need to be implemented."),
             };
 
-            FieldAttrs {
+            FieldAttr {
                 field_name_opt: is_named.then_some(&field.ident),
                 field_type,
                 field_type_opt,
+                is_vec,
                 is_optional,
                 is_required,
                 is_skipped,
@@ -117,7 +137,8 @@ fn get_field_kvs(fields: Iter<Field>, is_named: bool) -> Vec<FieldAttrs> {
                 _serde_fn,
             }
         })
-        .collect()
+        .collect::<Vec<_>>();
+    FieldAttrs { attrs, is_const }
 }
 
 #[proc_macro_derive(WithOpt, attributes(id, wopt))]
@@ -139,7 +160,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     let mut is_named = false;
 
     // match on the fields of the struct
-    let info: Vec<_> = if let syn::Data::Struct(ref data) = input.data {
+    let info = if let syn::Data::Struct(ref data) = input.data {
         match &data.fields {
             Fields::Named(fields) => {
                 is_named = true;
@@ -153,7 +174,10 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 #[cfg(feature = "bytemuck")]
                 {
                     is_unit = true;
-                    vec![]
+                    FieldAttrs {
+                        attrs: Vec::new(),
+                        is_const: true,
+                    }
                 }
             }
         }
@@ -161,7 +185,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
         panic!("Only structs are supported");
     };
 
-    if info.is_empty() && !is_unit {
+    if info.attrs.is_empty() && !is_unit {
         panic!("Must have at least 1 field.")
     }
 
@@ -294,21 +318,23 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     #[cfg(all(feature = "bytemuck", feature = "unchecked"))]
     let unwrap = Ident::new("unwrap_unchecked", Span::call_site().into());
 
+    let is_const = info.is_const;
     let mut has_optional = false;
 
     for (
         i,
-        FieldAttrs {
+        FieldAttr {
             field_name_opt,
             field_type,
             field_type_opt,
+            is_vec,
             is_optional,
             is_required,
             is_skipped,
             _is_serde,
             ref _serde_fn,
         },
-    ) in info.into_iter().enumerate()
+    ) in info.attrs.into_iter().enumerate()
     {
         let (size_of, size_of_opt) = if _is_serde {
             (
@@ -326,46 +352,94 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
             has_optional = true
         }
 
+        let [method_ser, method_de_part] = if is_const {
+            let ser = quote! {
+                h = t; // PUT THIS AT THE END??
+                t += #size_of;
+                data[h..t].copy_from_slice(field_data)
+            };
+            let de = quote! {
+                h = t;
+                t += #size_of;
+            };
+            [ser, de]
+        } else {
+            let ser = quote! {
+                data.extend_from_slice(field_data)
+            };
+            let de = if is_vec {
+                quote! {
+                    h = t + 2;
+                    t += u16::from_le_bytes([bytes[t], bytes[t + 1]]) as usize /* ::core::mem::size_of::<VEC_VALUE_TYPE>() */ + 2;
+                }
+            } else {
+                quote! {
+                    h = t;
+                    t += #size_of;
+                }
+            };
+            [ser, de]
+        };
+
+        let [method_ser_opt, method_de_part_opt] = {
+            let ser = quote! {
+                data.extend_from_slice(field_data)
+            };
+            let de = if is_vec {
+                quote! {
+                    h = t + 2;
+                    t += u16::from_le_bytes([bytes[t], bytes[t + 1]]) as usize /* ::core::mem::size_of::<VEC_VALUE_TYPE>() */ + 2;
+                }
+            } else {
+                quote! {
+                    h = t;
+                    t += #size_of_opt;
+                }
+            };
+            [ser, de]
+        };
+
         if let Some(field_name) = field_name_opt.cloned().map(|o| o.unwrap()) {
             field_struct_new.push(quote! { #field_name });
+
+            let fix_len = if is_vec {
+                quote! { data.extend_from_slice((self.#field_name.len() as u16).to_le_bytes().as_slice()); }
+            } else {
+                quote! {}
+            };
 
             #[cfg(feature = "bytemuck")]
             {
                 if let Some([ser, de]) = _serde_fn {
                     field_serialization.push(quote! {
-                        h = t; // PUT THIS AT THE END??
-                        t += #size_of;
-                        data[h..t].copy_from_slice(#ser(&self.#field_name).as_ref());
+                        #fix_len;
+                        let field_data = #ser(&self.#field_name).as_ref();
+                        #method_ser;
                     });
                     field_deserialization.push(quote! {
-                        h = t;
-                        t += #size_of;
+                        #method_de_part;
                         let #field_name = #de(&bytes[h..t]);
                     });
                 } else {
                     field_serialization.push(if _is_serde {
                         quote! {
-                            h = t;
-                            t += #size_of;
-                            data[h..t].copy_from_slice(&self.#field_name.serialize()[1..]);
+                            let field_data = &self.#field_name.serialize()[1..];
+                            #method_ser;
                         }
                     } else {
                         quote! {
-                            h = t;
-                            t += #size_of;
-                            data[h..t].copy_from_slice(::bytemuck::bytes_of(&self.#field_name));
+                            let field_data = ::bytemuck::bytes_of(&self.#field_name);
+                            #method_ser;
                         }
                     });
                     field_deserialization.push(if _is_serde {
                         quote! {
-                            h = t;
-                            t += #size_of;
+                            #method_de_part;
                             let #field_name = #field_type::deserialize(&bytes[h..t]);
                         }
                     } else {
                         quote! {
-                            h = t;
-                            t += #size_of;
+                            #method_de_part;
                             let #field_name = ::bytemuck::pod_read_unaligned(&bytes[h..t]);
                         }
                     });
@@ -381,17 +455,19 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 {
                     if let Some([ser, de]) = _serde_fn {
                         field_serialization_opt.push(quote! {
-                            data.extend_from_slice(#ser(&self.#field_name).as_ref());
+                            #fix_len;
+                            let field_data = #ser(&self.#field_name).as_ref();
+                            #method_ser_opt;
                         });
                         field_deserialization_opt.push(quote! {
-                            h = t;
-                            t += #size_of_opt;
+                            #method_de_part_opt;
                             new.#field_name = #de(&bytes[h..t]);
                         });
                     } else {
                         field_serialization_opt.push(if _is_serde {
                             quote! {
-                                data.extend_from_slice(&self.#field_name.serialize()[1..]);
+                                let field_data = &self.#field_name.serialize()[1..];
+                                #method_ser_opt;
                             }
                         } else {
                             quote! {
@@ -427,16 +503,23 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                         Span::call_site().into(),
                     );
 
+                    let fix_len = if is_vec {
+                        quote! { data.extend_from_slice((val.len() as u16).to_le_bytes().as_slice()); }
+                    } else {
+                        quote! {}
+                    };
+
                     if let Some([ser, de]) = _serde_fn {
                         field_serialization_opt.push(quote! {
                             if let Some(val) = self.#field_name.as_ref() {
+                                #fix_len;
+                                let field_data = #ser(val).as_ref();
                                 mask |= #unit::#unit_name;
-                                data.extend_from_slice(#ser(val).as_ref());
+                                #method_ser_opt;
                             }
                         });
                         field_deserialization_opt.push(quote! {
-                            h = t;
-                            t += #size_of_opt;
+                            #method_de_part_opt;
                             new.#field_name = Some(#de(&bytes[h..t]));
                         });
                     } else {
@@ -450,8 +533,9 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                         } else {
                             quote! {
                                 if let Some(val) = self.#field_name.as_ref() {
+                                    let field_data = ::bytemuck::bytes_of(val);
                                     mask |= #unit::#unit_name;
-                                    data.extend_from_slice(::bytemuck::bytes_of(val));
+                                    #method_ser_opt;
                                 }
                             }
                         });
@@ -466,8 +550,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                         } else {
                             quote! {
                                 if mask.contains(#unit::#unit_name) {
-                                    h = t;
-                                    t += #size_of_opt;
+                                    #method_de_part_opt;
                                     new.#field_name = Some(::bytemuck::pod_read_unaligned(&bytes[h..t]));
                                 }
                             }
@@ -504,45 +587,58 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
             let index = Index::from(i);
             let var = Ident::new(&format!("_{i}"), Span::call_site().into());
 
+            let fix_len = if is_vec {
+                quote! { data.extend_from_slice((self.#index.len() as u16).to_le_bytes().as_slice()); }
+            } else {
+                quote! {}
+            };
+
+            let fix_len_opt = if is_vec {
+                quote! {
+                let size = if let Some(val) = &self.#index {
+                    (val.len() as u16).to_le_bytes()
+                } else {
+                    [0; 2]
+                };
+                data.extend_from_slice(size.as_slice()) }
+            } else {
+                quote! {}
+            };
+
             field_struct_new.push(quote! { #index: #var });
 
             #[cfg(feature = "bytemuck")]
             {
                 if let Some([ser, de]) = _serde_fn {
                     field_serialization.push(quote! {
-                        h = t;
-                        t += #size_of;
-                        data[h..t].copy_from_slice(#ser(&self.#index).as_ref());
+                        #fix_len;
+                        let field_data = #ser(&self.#index).as_ref();
+                        #method_ser;
                     });
                     field_deserialization.push(quote! {
-                        h = t;
-                        t += #size_of;
+                        #method_de_part;
                         let #var = #de(&bytes[h..t]);
                     });
                 } else {
                     field_serialization.push(if _is_serde {
                         quote! {
-                            h = t;
-                            t += #size_of;
-                            data[h..t].copy_from_slice(&self.#index.serialize()[1..]);
+                            let field_data = &self.#index.serialize()[1..];
+                            #method_ser;
                         }
                     } else {
                         quote! {
-                            h = t;
-                            t += #size_of;
-                            data[h..t].copy_from_slice(::bytemuck::bytes_of(&self.#index));
+                            let field_data = ::bytemuck::bytes_of(&self.#index);
+                            #method_ser;
                         }
                     });
                     field_deserialization.push(if _is_serde {
                         quote! {
-                            h = t;
-                            t += #size_of;
+                            #method_de_part;
                             let #var = #field_type::deserialize(&bytes[h..t]);
                         }
                     } else {
                         quote! {
-                            h = t;
-                            t += #size_of;
+                            #method_de_part;
                             let #var = ::bytemuck::pod_read_unaligned(&bytes[h..t]);
                         }
                     });
@@ -557,33 +653,34 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 #[cfg(feature = "bytemuck")]
                 if let Some([ser, de]) = _serde_fn {
                     field_serialization_opt.push(quote! {
-                        data.extend_from_slice(#ser(&self.#index).as_ref());
+                        #fix_len;
+                        let field_data = #ser(&self.#index).as_ref();
+                        #method_ser_opt;
                     });
                     field_deserialization_opt.push(quote! {
-                        h = t;
-                        t += #size_of_opt;
+                        #method_de_part_opt;
                         new.#index = #de(&bytes[h..t]);
                     });
                 } else {
                     field_serialization_opt.push(if _is_serde {
                         quote! {
-                            data.extend_from_slice(&self.#index.serialize()[1..]);
+                            let field_data = &self.#index.serialize()[1..];
+                            #method_ser_opt;
                         }
                     } else {
                         quote! {
-                            data.extend_from_slice(::bytemuck::bytes_of(&self.#index));
+                            let field_data = ::bytemuck::bytes_of(&self.#index);
+                            #method_ser_opt;
                         }
                     });
                     field_deserialization_opt.push(if _is_serde {
                         quote! {
-                            h = t;
-                            t += #size_of;
+                            #method_de_part_opt; // TODO - normal `#size_of`??
                             new.#index = #field_type_opt::deserialize(&bytes[h..t]);
                         }
                     } else {
                         quote! {
-                            h = t;
-                            t += #size_of;
+                            #method_de_part_opt; // TODO - normal `#size_of`??
                             new.#index = ::bytemuck::pod_read_unaligned(&bytes[h..t]);
                         }
                     });
@@ -602,13 +699,14 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                     if let Some([ser, de]) = _serde_fn {
                         field_serialization_opt.push(quote! {
                             if let Some(val) = self.#index.as_ref() {
+                                #fix_len_opt;
+                                let field_data = #ser(val).as_ref();
                                 mask |= #unit::#unit_name;
-                                data.extend_from_slice(#ser(val).as_ref());
+                                #method_ser_opt;
                             }
                         });
                         field_deserialization_opt.push(quote! {
-                            h = t;
-                            t += #size_of_opt;
+                            #method_de_part_opt;
                             new.#index = Some(#de(&bytes[h..t]));
                         });
                     } else {
@@ -622,8 +720,9 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                         } else {
                             quote! {
                                 if let Some(val) = self.#index.as_ref() {
+                                    let field_data = ::bytemuck::bytes_of(val);
                                     mask |= #unit::#unit_name;
-                                    data.extend_from_slice(::bytemuck::bytes_of(val));
+                                    #method_ser_opt;
                                 }
                             }
                         });
@@ -638,8 +737,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                         } else {
                             quote! {
                                 if mask.contains(#unit::#unit_name) {
-                                    h = t;
-                                    t += #size_of_opt;
+                                    #method_de_part_opt;
                                     new.#index = Some(::bytemuck::pod_read_unaligned(&bytes[h..t]));
                                 }
                             }
@@ -691,20 +789,36 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
         let serde_og = if _no_serde {
             quote! {}
         } else {
-            quote! {
-                pub fn serialize(&self) -> [u8; 1 + Self::UNPADDED_SIZE] {
-                    let mut data = [0; 1 + Self::UNPADDED_SIZE];
-                    let [mut h, mut t] = [0, ::core::mem::size_of_val(&#id_og)];
-                    data[0] = #id_og;
-                    #(#field_serialization)*
-                    data
+            let ser = if is_const {
+                quote! {
+                    pub fn serialize(&self) -> [u8; 1 + Self::UNPADDED_SIZE] {
+                        let mut data = [0; 1 + Self::UNPADDED_SIZE];
+                        let [mut h, mut t] = [0, ::core::mem::size_of_val(&#id_og)];
+                        data[0] = #id_og;
+                        #(#field_serialization)*
+                        data
+                    }
                 }
-
+            } else {
+                quote! {
+                    pub fn serialize(&self) -> Vec<u8> {
+                        let mut data = Vec::with_capacity(1 + Self::UNPADDED_SIZE);
+                        data.push(#id_og);
+                        #(#field_serialization)*
+                        data
+                    }
+                }
+            };
+            let de = quote! {
                 pub fn deserialize(bytes: &[u8]) -> Self {
                     let [mut h, mut t] = [0; 2];
                     #(#field_deserialization)*
                     Self { #(#field_struct_new),* }
                 }
+            };
+            quote! {
+                #ser
+                #de
             }
         };
 
@@ -800,9 +914,17 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 #(#upts)*
             }
         };
-        let into_opt = quote! {
-            pub const fn into_opt(self) -> #opt_name {
-                #opt_name { #(#into),* }
+        let into_opt = if is_const {
+            quote! {
+                pub const fn into_opt(self) -> #opt_name {
+                    #opt_name { #(#into),* }
+                }
+            }
+        } else {
+            quote! {
+                pub fn into_opt(self) -> #opt_name {
+                    #opt_name { #(#into),* }
+                }
             }
         };
         let is_modified = quote! {
