@@ -10,33 +10,64 @@ use syn::{
 #[cfg(any(feature = "bf", feature = "bytemuck"))]
 use syn::{Expr, Lit};
 
+#[cfg(feature = "bytemuck")]
+use std::{
+    fs::File,
+    io::{Read, Seek, SeekFrom, Write},
+};
+
+#[cfg(feature = "bytemuck")]
+const INCR_PATH: &str = "target/wopt/counter";
+
 #[cfg(all(not(feature = "bytemuck"), feature = "unchecked"))]
 compile_error!("Feature `unchecked` requires feature `bytemuck`.");
 
+#[cfg(feature = "bytemuck")]
+fn next_id(f: &mut File) -> u8 {
+    f.seek(SeekFrom::Start(0)).unwrap();
+
+    let mut s = String::new();
+    f.read_to_string(&mut s).unwrap();
+
+    let current = s.trim().parse::<u8>().unwrap();
+
+    if current == u8::MAX {
+        panic!("Too many structures implementing WithOpt.")
+    }
+    let next: u8 = current + 1;
+
+    // overwrite with new value
+    f.seek(SeekFrom::Start(0)).unwrap();
+    f.write_all(next.to_string().as_bytes()).unwrap();
+    f.flush().unwrap();
+
+    current
+}
+
 fn get_opt_type(original: &Type) -> Type {
-    if let Type::Path(TypePath { path, .. }) = original {
-        if let Some(last_segment) = path.segments.last() {
-            let orig_ident = &last_segment.ident;
-            let new_ident = Ident::new(
-                format!("{orig_ident}Opt").as_str(),
-                Span::call_site().into(),
-            );
+    if let Type::Path(TypePath { path, .. }) = original
+        && let Some(last_segment) = path.segments.last()
+    {
+        let orig_ident = &last_segment.ident;
+        let new_ident = Ident::new(
+            format!("{orig_ident}Opt").as_str(),
+            Span::call_site().into(),
+        );
 
-            // Construct a new path with the modified ident and same arguments
-            let new_segment = PathSegment {
-                ident: new_ident,
-                arguments: last_segment.arguments.clone(),
-            };
+        // Construct a new path with the modified ident and same arguments
+        let new_segment = PathSegment {
+            ident: new_ident,
+            arguments: last_segment.arguments.clone(),
+        };
 
-            let mut new_path = path.clone();
-            new_path.segments.pop();
-            new_path.segments.push(new_segment);
+        let mut new_path = path.clone();
+        new_path.segments.pop();
+        new_path.segments.push(new_segment);
 
-            return Type::Path(TypePath {
-                qself: None,
-                path: new_path,
-            });
-        }
+        return Type::Path(TypePath {
+            qself: None,
+            path: new_path,
+        });
     }
     panic!("Unexpected syn::Type variant.")
 }
@@ -68,45 +99,45 @@ fn get_field_kvs(fields: Iter<Field>, is_named: bool) -> FieldAttrs {
             let (mut ser, mut de) = Default::default();
 
             // check for non-constant field (e.g., 'Vec')
-            if let Type::Path(path) = &field.ty {
-                if path.path.segments.last().unwrap().ident == "Vec" {
-                    is_vec = true;
-                    is_const = false;
-                }
+            if let Type::Path(path) = &field.ty
+                && path.path.segments.last().unwrap().ident == "Vec"
+            {
+                is_vec = true;
+                is_const = false;
             }
 
-            if let Some(attr) = field.attrs.first() {
-                if attr.path().is_ident("wopt") {
-                    attr.parse_nested_meta(|a| {
-                        if let Some(ident) = a.path.get_ident() {
-                            match ident.to_string().as_str() {
-                                "non_const" => is_const = false,
-                                "optional" => is_optional = true,
-                                "required" => is_required = true,
-                                "skip" => is_skipped = true,
-                                "serde" => _is_serde = true,
-                                "ser" => {
-                                    let value = a.value()?;
-                                    let s: LitStr = value.parse()?;
-                                    let p = syn::parse_str::<Path>(s.value().as_str())?;
-                                    ser = Some(p)
-                                }
-                                "de" => {
-                                    let value = a.value()?;
-                                    let s: LitStr = value.parse()?;
-                                    let p = syn::parse_str::<Path>(s.value().as_str())?;
-                                    de = Some(p)
-                                }
-                                attr => panic!("Unsupported attribute ({attr})."),
+            if let Some(attr) = field.attrs.first()
+                && attr.path().is_ident("wopt")
+            {
+                attr.parse_nested_meta(|a| {
+                    if let Some(ident) = a.path.get_ident() {
+                        match ident.to_string().as_str() {
+                            "non_const" => is_const = false,
+                            "optional" => is_optional = true,
+                            "required" => is_required = true,
+                            "skip" => is_skipped = true,
+                            "serde" => _is_serde = true,
+                            "ser" => {
+                                let value = a.value()?;
+                                let s: LitStr = value.parse()?;
+                                let p = syn::parse_str::<Path>(s.value().as_str())?;
+                                ser = Some(p)
                             }
+                            "de" => {
+                                let value = a.value()?;
+                                let s: LitStr = value.parse()?;
+                                let p = syn::parse_str::<Path>(s.value().as_str())?;
+                                de = Some(p)
+                            }
+                            attr => panic!("Unsupported attribute ({attr})."),
                         }
-                        Ok(())
-                    })
-                    .unwrap();
-
-                    if is_required && is_skipped {
-                        panic!("`required` and `skip` can't be specified together.")
                     }
+                    Ok(())
+                })
+                .unwrap();
+
+                if is_required && is_skipped {
+                    panic!("`required` and `skip` can't be specified together.")
                 }
             }
 
@@ -274,11 +305,6 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     if !is_unit {
         derives.extend([quote! { ::enum_unit::EnumUnit }]);
     }
-
-    #[cfg(feature = "bytemuck")]
-    let id_og = id.expect("Specify the `id` attribute.");
-    #[cfg(feature = "bytemuck")]
-    let id_opt = id_og + (i8::MAX as u8);
 
     let opt_name = if is_unit {
         name.clone()
@@ -778,6 +804,16 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     }
 
     #[cfg(feature = "bytemuck")]
+    let mut f = File::options()
+        .read(true)
+        .write(true)
+        .open(INCR_PATH)
+        .unwrap();
+
+    #[cfg(feature = "bytemuck")]
+    let id_og = id.unwrap_or(next_id(&mut f));
+
+    #[cfg(feature = "bytemuck")]
     let (serde_og, serde_opt) = if is_unit {
         let serde = quote! {
             pub const fn serialize() -> [u8; 1] {
@@ -817,6 +853,8 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
                 }
             };
             quote! {
+                pub const ID: u8 = #id_og;
+
                 #ser
                 #de
             }
@@ -828,7 +866,11 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
             unsafe { #try_into }
         };
 
+        let id_opt = next_id(&mut f);
+
         let serde_opt = quote! {
+            pub const ID: u8 = #id_opt;
+
             pub fn serialize(&self) -> Vec<u8> {
                 let mut data = Vec::with_capacity(
                     1                               +   // identity byte
@@ -950,13 +992,6 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     };
 
     #[cfg(feature = "bytemuck")]
-    let impl_name_id = quote! {
-        pub const ID: u8 = #id_og;
-    };
-    #[cfg(not(feature = "bytemuck"))]
-    let impl_name_id = quote! {};
-
-    #[cfg(feature = "bytemuck")]
     let impl_name = quote! {
         pub const UNPADDED_SIZE: usize = #(#size)+*;
 
@@ -965,17 +1000,9 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     };
     let impl_name = quote! {
         impl #name {
-            #impl_name_id
             #impl_name
         }
     };
-
-    #[cfg(feature = "bytemuck")]
-    let impl_opt_id = quote! {
-        pub const ID: u8 = #id_opt;
-    };
-    #[cfg(not(feature = "bytemuck"))]
-    let impl_opt_id = quote! {};
 
     #[cfg(feature = "bytemuck")]
     let impl_name_opt = quote! {
@@ -986,7 +1013,6 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     };
     let impl_name_opt = quote! {
         impl #opt_name {
-            #impl_opt_id
             #impl_name_opt
         }
     };
