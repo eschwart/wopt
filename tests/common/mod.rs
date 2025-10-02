@@ -24,7 +24,6 @@ pub mod named {
 
     #[derive(Clone, Copy, Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
-    #[cfg_attr(feature = "bytemuck", wopt(id = 0))]
     pub struct ExampleNamed {
         pub a: u8,
         pub b: f32,
@@ -33,7 +32,6 @@ pub mod named {
 
     #[derive(Clone, Copy, Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
-    #[cfg_attr(feature = "bytemuck", wopt(id = 1))]
     pub struct ExampleNamedReq {
         pub a: u8,
         #[wopt(required)]
@@ -43,7 +41,6 @@ pub mod named {
 
     #[derive(Clone, Copy, Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
-    #[cfg_attr(feature = "bytemuck", wopt(id = 2))]
     pub struct ExampleNamedWith {
         pub a: u8,
         pub b: f32,
@@ -53,7 +50,6 @@ pub mod named {
     #[cfg(feature = "bytemuck")]
     #[derive(Clone, Copy, Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
-    #[wopt(id = 3)]
     pub struct ExampleNamedFlat {
         pub a: u8,
         #[wopt(optional, serde)]
@@ -64,7 +60,6 @@ pub mod named {
     #[cfg(feature = "bytemuck")]
     #[derive(Clone, Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
-    #[wopt(id = 3)]
     pub struct ExampleNamedVec {
         pub a: u8,
         #[wopt(ser = "super::util::ser", de = "super::util::de")]
@@ -80,29 +75,24 @@ pub mod unnamed {
 
     #[derive(Clone, Copy, Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
-    #[cfg_attr(feature = "bytemuck", wopt(id = 0))]
     pub struct ExampleUnnamed(pub u8, pub f32, pub i32);
 
     #[derive(Clone, Copy, Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
-    #[cfg_attr(feature = "bytemuck", wopt(id = 1))]
     pub struct ExampleUnnamedReq(pub u8, #[wopt(required)] pub f32, pub i32);
 
     #[derive(Clone, Copy, Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
-    #[cfg_attr(feature = "bytemuck", wopt(id = 2))]
     pub struct ExampleUnnamedWith(pub u8, pub f32, pub i32);
 
     #[cfg(feature = "bytemuck")]
     #[derive(Clone, Copy, Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
-    #[wopt(id = 3)]
     pub struct ExampleUnnamedFlat(pub u8, #[wopt(optional, serde)] pub ExampleUnnamed, pub i32);
 
     #[cfg(feature = "bytemuck")]
     #[derive(Clone, Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
-    #[wopt(id = 3)]
     pub struct ExampleUnnamedVec(
         pub u8,
         #[wopt(ser = "super::util::ser", de = "super::util::de")] pub Vec<u8>,
@@ -117,7 +107,6 @@ pub mod unit {
     #[cfg(feature = "bytemuck")]
     #[derive(Clone, Copy, Debug, Default, PartialEq, WithOpt)]
     #[wopt(derive(Debug, Default, PartialEq))]
-    #[wopt(id = 0)]
     pub struct ExampleUnit;
 }
 
@@ -131,7 +120,6 @@ mod bf {
     #[wopt(
         bf = "++++[++++>---<]>+.[-->+++<]>-.---.[--->+<]>-.++[->+++<]>++.-[--->+<]>--.++[->++<]>.[-->+++<]>-.+.-----.--[--->+<]>.---------.++++++++.[---->+<]>+++.[-->+++++<]>.[------->++<]>+.--[--->+<]>---.++.-----------.--------.+++++++++++.[->+++<]>+.-[--->+<]>+++++."
     )]
-    #[cfg_attr(feature = "bytemuck", wopt(id = 0))]
     pub struct ExampleNamed {
         pub a: u8,
         #[wopt(required)]
@@ -144,6 +132,5 @@ mod bf {
     #[wopt(
         bf = "++++[++++>---<]>+.[-->+++<]>-.---.[--->+<]>-.++[->+++<]>++.-[--->+<]>--.++[->++<]>.[-->+++<]>-.+.-----.--[--->+<]>.---------.++++++++.[---->+<]>+++.[-->+++++<]>.[------->++<]>+.--[--->+<]>---.++.-----------.--------.+++++++++++.[->+++<]>+.-[--->+<]>+++++."
     )]
-    #[cfg_attr(feature = "bytemuck", wopt(id = 1))]
     pub struct ExampleUnnamed(pub u8, #[wopt(required)] pub f32, #[wopt(skip)] pub i32);
 }
