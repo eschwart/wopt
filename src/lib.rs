@@ -16,11 +16,40 @@ use std::{
     io::{Read, Seek, SeekFrom, Write},
 };
 
-#[cfg(feature = "bytemuck")]
-const INCR_PATH: &str = "target/wopt/counter";
-
 #[cfg(all(not(feature = "bytemuck"), feature = "unchecked"))]
 compile_error!("Feature `unchecked` requires feature `bytemuck`.");
+
+#[cfg(feature = "bytemuck")]
+fn setup_counter_file() -> File {
+    let path = std::path::Path::new("target")
+        .join("tmp")
+        .join("wopt")
+        .join("counter");
+
+    // ensure directory exists
+    std::fs::create_dir_all(unsafe {
+        // SAFETY - impossible to be root/prefix and isn't empty.
+        path.parent().unwrap_unchecked()
+    })
+    .unwrap_or_else(|_| panic!("Failed to create {:?} directory.", path.parent()));
+
+    #[allow(clippy::suspicious_open_options)]
+    let mut f = File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(&path)
+        .unwrap_or_else(|_| panic!("Failed to open {path:?}."));
+
+    let mut s = String::new();
+    f.read_to_string(&mut s).unwrap();
+    if s.trim().is_empty() {
+        f.write_all(b"0")
+            .unwrap_or_else(|_| panic!("Failed to write to {path:?} file."));
+        f.flush().unwrap_or_default();
+    }
+    f
+}
 
 #[cfg(feature = "bytemuck")]
 fn next_id(f: &mut File) -> u8 {
@@ -31,12 +60,10 @@ fn next_id(f: &mut File) -> u8 {
 
     let current = s.trim().parse::<u8>().unwrap();
 
-    if current == u8::MAX {
-        panic!("Too many structures implementing WithOpt.")
-    }
-    let next: u8 = current + 1;
+    let next: u8 = current.wrapping_add(1);
 
     // overwrite with new value
+    f.set_len(0).unwrap();
     f.seek(SeekFrom::Start(0)).unwrap();
     f.write_all(next.to_string().as_bytes()).unwrap();
     f.flush().unwrap();
@@ -804,11 +831,7 @@ pub fn wopt_derive(input: TokenStream) -> TokenStream {
     }
 
     #[cfg(feature = "bytemuck")]
-    let mut f = File::options()
-        .read(true)
-        .write(true)
-        .open(INCR_PATH)
-        .unwrap();
+    let mut f = setup_counter_file();
 
     #[cfg(feature = "bytemuck")]
     let id_og = id.unwrap_or(next_id(&mut f));
